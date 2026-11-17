@@ -1,0 +1,120 @@
+--- a/src/convert.c
++++ b/src/convert.c
+@@ -16,7 +16,8 @@
+                                       convert_state *state,
+                                       double        *out_power)
+ {
+-  const uint8_t *in = iq_data;
++  /* One LUT index is a complete little-endian I/Q byte pair. */
++  const uint16_t *in = iq_data;
+   unsigned       i;
+ 
+   MODES_NOTUSED (state);
+@@ -49,7 +50,8 @@
+                                     convert_state *state,
+                                     double        *out_power)
+ {
+-  const uint8_t *in = iq_data;
++  /* One LUT index is a complete little-endian I/Q byte pair. */
++  const uint16_t *in = iq_data;
+   unsigned       i;
+   uint64_t       power = 0;
+   uint16_t       mag;
+--- a/src/demod-2000.c
++++ b/src/demod-2000.c
+@@ -680,7 +680,7 @@
+ 
+         if (mode_A) /* We have found a valid ModeA/C in the data */
+         {
+-          mm.timestamp_msg = mag->sample_timestamp + ((j+1) * 6);
++          mm.timestamp_msg = mag->sample_timestamp + ((j+1) * 6) - (mag->overlap * 6);
+ 
+           /* compute message receive time as block-start-time + difference in the 12MHz clock
+            */
+@@ -957,7 +957,7 @@
+ 
+       /* Set initial mm structure details
+        */
+-      mm.timestamp_msg = mag->sample_timestamp + (j * 6);
++      mm.timestamp_msg = mag->sample_timestamp + (j * 6) - (mag->overlap * 6);
+ 
+       /* Compute message receive time as block-start-time + difference in the 12MHz clock
+        */
+--- a/src/demod-2400.c
++++ b/src/demod-2400.c
+@@ -464,7 +464,7 @@
+ 
+       /* Set initial mm structure details
+        */
+-      mm.timestamp_msg = mag->sample_timestamp + (j*5) + bestphase;
++      mm.timestamp_msg = mag->sample_timestamp + (j*5) + bestphase - (mag->overlap * 5);
+ 
+       /* Compute message receive time as block-start-time + difference in the 12MHz clock
+        */
+--- a/src/dump1090.c
++++ b/src/dump1090.c
+@@ -128,8 +128,11 @@
+ static bool sample_rate_set  = false;
+ static bool strip_level_set  = false;
+ static bool max_messages_set = false;
++/* Flight Radar Windows: keep the receiver's 12 MHz sample clock for MLAT. */
++static bool raw_timestamps = false;
+ 
+ static const cfg_table config[] = {
++    { "raw-timestamps",          ARG_ATOB,    (void*) &raw_timestamps },
+     { "adsb-fi-max-distance",    ARG_FUNC,    (void*) adsb_fi_max_distance },
+     { "adsb-fi-print-non-icao",  ARG_FUNC,    (void*) adsb_fi_print_non_icao },
+     { "adsb-fi-print-old",       ARG_FUNC,    (void*) adsb_fi_print_old },
+@@ -1207,6 +1210,8 @@
+   {
+     out_buf->flags   = MAGBUF_DISCONTINUOUS;
+     out_buf->dropped = dropped;
++    /* Keep the sample clock continuous when Windows cannot supply a FIFO buffer. */
++    Modes.sample_counter += dropped;
+   }
+ 
+   dropped = 0;
+@@ -3094,8 +3099,17 @@
+   size_t left = sizeof(buf);
+   int    i;
+ 
+-  *p++ = '*';
+-  left--;
++  if (Modes.raw && raw_timestamps)
++  {
++    int n = snprintf (p, left, "@%012llX", (unsigned long long)(mm->timestamp_msg & 0xFFFFFFFFFFFFULL));
++    p += n;
++    left -= n;
++  }
++  else
++  {
++    *p++ = '*';
++    left--;
++  }
+ 
+   for (i = 0; i < mm->msg_bits / 8 && left > 5; i++)
+   {
+@@ -4535,6 +4549,23 @@
+   bool init_error = true;   /* assume some 'x_init()' failure */
+   int  rc;
+ 
++  /* Enumeration does not open, retune or claim a receiver. */
++  if (argc == 2 && !strcmp(argv[1], "--list-devices"))
++  {
++    uint32_t count = rtlsdr_get_device_count();
++    for (uint32_t i = 0; i < count; i++)
++    {
++      char maker[256] = "", product[256] = "", serial[256] = "";
++      rtlsdr_get_device_usb_strings (i, maker, product, serial);
++      char *fields[3] = { maker, product, serial };
++      for (int f = 0; f < 3; f++)
++        for (char *s = fields[f]; *s; s++)
++          if ((unsigned char)*s < 32) *s = ' ';
++      printf ("%u\t%s\t%s\t%s\n", i, maker, product, serial);
++    }
++    return 0;
++  }
++
+ #if defined(_DEBUG)
+   crtdbug_init();
+ #endif

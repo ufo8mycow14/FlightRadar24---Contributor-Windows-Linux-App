@@ -1,0 +1,15 @@
+{
+  "source": "https://raw.githubusercontent.com/davidmegginson/ourairports-data/845fd124acca9a13d076f3ab957d3eecf46721fc/airports.csv",
+  "repository": "https://github.com/davidmegginson/ourairports-data",
+  "commit": "845fd124acca9a13d076f3ab957d3eecf46721fc",
+  "captured_utc": "2026-11-17T08:07:46.648558+00:00",
+  "source_sha256": "3d7eeb55961be0f1691e3420ec0e05d4a58be4597c61540511e3e838d7e486f9",
+  "included_types": [
+    "large_airport",
+    "medium_airport"
+  ],
+  "airports": 5282,
+  "licence_sha256": "6b0382b16279f26ff69014300541967a356a666eb0b91b422f6862f6b7dad17e",
+  "licence": "OurAirports data is public domain; no accuracy or fitness guarantee. Reference only, not a navigation database.",
+  "purpose": "Offline code/name/coordinate search; no airline, route, arrival or departure inference."
+}

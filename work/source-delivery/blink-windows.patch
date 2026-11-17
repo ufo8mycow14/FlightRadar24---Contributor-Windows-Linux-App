@@ -1,0 +1,146 @@
+--- a/blink/argv.c
++++ b/blink/argv.c
+@@ -113,7 +113,8 @@
+   while ((sp - nall * sizeof(i64)) & (STACKALIGN - 1)) --sp;
+   sp -= nall * sizeof(i64);
+   Write64(m->sp, sp);
+-  Write64(m->dx, dx);
++  /* Linux ELF startup interprets RDX as an optional rtld finaliser. */
++  Write64(m->dx, m->system->iscosmo ? dx : 0);
+   Write64(m->di, 0); /* or ape detects freebsd */
+   bytes = (u8 *)malloc(nall * 8);
+   for (i = 0; i < nall; ++i) {
+--- a/blink/loader.c
++++ b/blink/loader.c
+@@ -745,6 +745,7 @@
+   m->system->codesize = 0;
+   m->system->codestart = 0;
+   m->system->brk = FLAG_imagestart;
++  m->system->brk_requested = 0;
+   m->system->automap = FLAG_automapstart;
+   if (HasLinearMapping()) {
+     m->system->brk ^= Read64(elf->rng) & FLAG_aslrmask;
+--- a/blink/machine.h
++++ b/blink/machine.h
+@@ -271,6 +271,7 @@
+   u64 cr3;
+   u64 cr4;
+   i64 brk;
++  i64 brk_requested; /* Linux-visible byte address, separate from host pages. */
+   i64 automap;
+   i64 memchurn;
+   i64 codestart;
+--- a/blink/syscall.c
++++ b/blink/syscall.c
+@@ -662,8 +662,10 @@
+   u8 *mem;
+   struct Futex *f;
+   const struct timespec_linux *gtimeout;
++  clockid_t clock = (op & FUTEX_CLOCK_REALTIME_LINUX)
++                        ? CLOCK_REALTIME : CLOCK_MONOTONIC;
+   struct timespec now, tick, timeout, deadline;
+-  now = tick = GetTime();
++  unassert(!clock_gettime(clock, &now));
+   if (timeout_addr) {
+     if (!(gtimeout = (const struct timespec_linux *)SchlepR(
+               m, timeout_addr, sizeof(*gtimeout)))) {
+@@ -671,10 +673,18 @@
+     }
+     timeout.tv_sec = Read64(gtimeout->sec);
+     timeout.tv_nsec = Read64(gtimeout->nsec);
+-    if (!(0 <= timeout.tv_nsec && timeout.tv_nsec < 1000000000)) {
++    if (timeout.tv_sec < 0 ||
++        !(0 <= timeout.tv_nsec && timeout.tv_nsec < 1000000000)) {
+       return einval();
+     }
+-    deadline = AddTime(now, timeout);
++    if ((op & ~FUTEX_CLOCK_REALTIME_LINUX) == FUTEX_WAIT_BITSET_LINUX) {
++      /* Linux WAIT_BITSET uses an absolute deadline in the selected clock. */
++      deadline = timeout;
++    } else {
++      /* Ordinary FUTEX_WAIT has a relative, monotonic timeout. */
++      deadline = CompareTime(timeout, SubtractTime(GetMaxTime(), now)) > 0
++                     ? GetMaxTime() : AddTime(now, timeout);
++    }
+   } else {
+     deadline = GetMaxTime();
+   }
+@@ -717,9 +727,23 @@
+     if (Load32(mem) != expect) {
+       rc = 0;
+     } else {
+-      tick = AddTime(tick, FromMilliseconds(kPollingMs));
++      unassert(!clock_gettime(clock, &now));
++      tick = AddTime(now, FromMilliseconds(kPollingMs));
+       if (CompareTime(tick, deadline) > 0) tick = deadline;
+-      rc = pthread_cond_timedwait(&f->cond, &f->lock, &tick);
++      if (CompareTime(now, deadline) >= 0) {
++        rc = ETIMEDOUT;
++      } else {
++#ifdef __CYGWIN__
++        /* Preserve the guest clock domain even when the wall clock is set. */
++        rc = pthread_cond_clockwait(&f->cond, &f->lock, clock, &tick);
++#else
++        /* The existing condition variable uses CLOCK_REALTIME. */
++        if (clock == CLOCK_MONOTONIC) {
++          tick = AddTime(GetTime(), SubtractTime(tick, now));
++        }
++        rc = pthread_cond_timedwait(&f->cond, &f->lock, &tick);
++#endif
++      }
+       if (rc == ETIMEDOUT) {
+         THR_LOGF("futex wait timed out");
+       } else {
+@@ -727,7 +751,8 @@
+       }
+     }
+     UNLOCK(&f->lock);
+-  } while (rc == ETIMEDOUT && CompareTime(tick, deadline) < 0);
++    unassert(!clock_gettime(clock, &now));
++  } while (rc == ETIMEDOUT && CompareTime(now, deadline) < 0);
+   LOCK(&g_bus->futexes.lock);
+   LOCK(&f->lock);
+   if (!--f->waiters) {
+@@ -762,12 +787,11 @@
+       return SysFutexWake(m, uaddr, val);
+     case FUTEX_WAIT_BITSET_LINUX:
+     case FUTEX_WAIT_BITSET_LINUX | FUTEX_CLOCK_REALTIME_LINUX:
+-      // will be supported soon
+-      // avoid logging when cosmo feature checks this
+-      if (!m->system->iscosmo) goto DefaultCase;
+-      return einval();
++      /* This queue has no per-waiter bit masks. MATCH_ANY has ordinary
++         wait semantics; selective masks remain unsupported. */
++      if (val3 != 0xffffffffu) return einval();
++      return SysFutexWait(m, uaddr, op, val, timeout_addr);
+     default:
+-    DefaultCase:
+       LOGF("unsupported %s op %#x", "futex", op);
+       return einval();
+   }
+@@ -1089,10 +1113,11 @@
+ }
+ 
+ static i64 SysBrk(struct Machine *m, i64 addr) {
+-  i64 rc, size;
++  i64 rc, size, requested = addr;
+   long pagesize;
+   BEGIN_NO_PAGE_FAULTS;
+   LOCK(&m->system->mmap_lock);
++  if (!m->system->brk_requested) m->system->brk_requested = m->system->brk;
+   MEM_LOGF("brk(%#" PRIx64 ") currently %#" PRIx64, addr, m->system->brk);
+   pagesize = FLAG_pagesize;
+   addr = ROUNDUP(addr, pagesize);
+@@ -1129,7 +1154,11 @@
+       }
+     }
+   }
+-  rc = m->system->brk;
++  /* Linux brk returns the requested byte address, not the host page end.
++     Cygwin's 64 KiB allocation granularity otherwise corrupts glibc's heap. */
++  if (requested >= kNullSize && addr == m->system->brk)
++    m->system->brk_requested = requested;
++  rc = m->system->brk_requested;
+   unassert(CheckMemoryInvariants(m->system));
+   UNLOCK(&m->system->mmap_lock);
+   END_NO_PAGE_FAULTS;

@@ -1,0 +1,9 @@
+FlightRadar24 installs a native Windows desktop application and its receiver runtime.
+
+Setup checks supported RTL2832 USB receivers and installs WinUSB when needed. A working WinUSB receiver is left as it is. Setup targets the SDR bulk interface only; it does not replace a USB composite parent or an infrared-control interface.
+
+All USB setup components are included for offline use. WinUSB.sys is supplied and signed by Microsoft as part of Windows. The bundled libwdi helper creates the device-specific INF and signed catalog locally. This is not a Microsoft WHQL-certified device package. Windows may ask you to confirm the driver installation; Windows security and driver-signature enforcement remain enabled.
+
+Automatic USB setup supports composite Realtek RTL2832 receivers with VID 0BDA, PID 2832 or 2838, SDR Interface 0. Other receivers, ambiguous device matches, and enterprise policy restrictions are reported without changing their drivers. A connected and correctly configured SDR and a suitable antenna are needed for live reception.
+
+Flightradar24 uploading requires your own sharing key and a working service connection. No account details are submitted by setup. Settings and sharing keys remain in the original Windows user's application-data profile and are not deleted when the application is uninstalled.

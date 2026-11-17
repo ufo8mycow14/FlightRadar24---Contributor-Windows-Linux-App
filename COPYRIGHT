@@ -1,0 +1,18 @@
+FlightRadar24 — independent desktop receiver application
+Copyright (C) 2026 Kieran O'Rourke
+
+The project-authored controller, native UI, support content, tests and documentation
+are free software: you can redistribute them and/or modify them under the terms
+of the GNU General Public License as published by the Free Software Foundation,
+either version 3 of the License, or (at your option) any later version.
+
+This program is distributed in the hope that it will be useful, but WITHOUT ANY
+WARRANTY; without even the implied warranty of MERCHANTABILITY or FITNESS FOR A
+PARTICULAR PURPOSE. See LICENSE for the complete GNU General Public License.
+
+Third-party code, data and component-specific source patches retain their original
+licence/copyright notices. This grant does not relicense those materials or the
+separately obtained proprietary Flightradar24 feeder. See THIRD-PARTY-NOTICES.md.
+
+This independent project is not affiliated with or endorsed by Flightradar24 AB.
+No trademark rights are granted by this licence.

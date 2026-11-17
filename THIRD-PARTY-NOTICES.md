@@ -1,0 +1,34 @@
+# Third-party components
+
+The project-authored controller/UI and documentation use GNU GPL v3 or later (see `COPYRIGHT` and `LICENSE`). Third-party components retain their own terms. This independent project is not an official Flightradar24 release.
+
+**Public source scope:** the public repository supplies project source, tests, documentation, OurAirports reference data, the legacy Leaflet asset/licence and selected native source patches. It excludes the vendor feeder, native DLLs/EXEs, Python/Qt wheels, private operational records and previously produced installers. The table below inventories the complete development installation and optional packaging dependencies; it does not mean all those payloads are in this public repository. Paths beginning `runtime/` describe a separately prepared complete package; companion archives describe earlier private development deliveries.
+
+| Component | Version / source | Notes |
+| --- | --- | --- |
+| Flightradar24 feeder | 1.0.57-1, `https://repo-feed.flightradar24.com/linux_binaries/fr24feed_1.0.57-1_amd64.tgz` | Unmodified proprietary vendor binary. Its licence and bundled dependency notices are retained. Used for the requested local feeder integration. |
+| gvanem/Dump1090 | v1.0.1, GitHub tag archive rooted at `gvanem-Dump1090-6a8abff` | Native Windows decoder, modified locally for sample conversion/timestamp output. Original source archive plus patch supplied; retain its component/header notices. |
+| Blink | 1.1.0, `https://github.com/jart/blink` | ISC licence. Locally patched runtime; full original source archive and patch supplied. |
+| Cygwin | 3.6.12-1 | Cygwin runtime and accompanying licence/exception text. Corresponding source archive hash checked against the downloaded Cygwin package index. |
+| GCC runtime | libgcc 14.4.0-1 | Unmodified runtime DLL; GCC runtime library exception applies as documented by upstream. |
+| pyModeS | 3.7.0 | GPL v3. Source included in the companion archive, along with its licence. |
+| pyserial | 3.5 | BSD licence; source and licence included. |
+| Python | 3.12, bundled interpreter/runtime | Python Software Foundation licence and notices retained. |
+| PyInstaller | 6.22.3 | Build tool/bootloader. GPL with its documented bootloader exception. |
+| Qt for Python (PySide6 Essentials and shiboken6) | 6.11.3 | Native Qt Widgets and Qt Network controls, distributed using the LGPLv3 option. Qt Quick and Qt WebEngine are not used. Complete licence texts, upstream notice inventories and exact versioned source/archive hashes are under `runtime/licenses/qt`; shared libraries remain replaceable. See [Qt for Python licensing](https://doc.qt.io/qtforpython-6/licenses.html) and the package's `SOURCE-AND-NOTICES.md`. |
+| OpenStreetMap | Worldwide map tiles, `https://tile.openstreetmap.org/` | Map data © OpenStreetMap contributors, ODbL. Attribution is displayed on the map. Tile use is subject to `https://operations.osmfoundation.org/policies/tiles/`; no bulk downloads or offline tile archive are provided. |
+| Embedded RTL-SDR and tuner drivers | Bundled decoder sources | GPL-2.0-or-later; exact copyright notices and GPL v2 text are in `runtime/licences/decoder-components`. This Windows fork uses WinUSB directly. |
+| Offline WinUSB setup helper | libwdi 1.5.1, locally restricted AMD64 helper | The helper, exact upstream source archive, local patches, build instructions and GPL/LGPL texts are under `runtime/drivers/winusb`. It uses Microsoft's Windows inbox WinUSB driver. Device-specific INF/CAT files are generated and locally signed by libwdi when installation is needed; they are not WHQL-certified. |
+| Embedded Mongoose | 7.23, bundled decoder sources | GPL-2.0-only or a separately obtained commercial licence; no commercial licence is recorded here. Includes public-domain, BearSSL-derived MIT and micro-ecc BSD cryptographic code with retained notices. |
+| Other compiled decoder components | AirSpy interface header, miniz/ZIP, SQLite, PDCursesMod, original dump1090 and getopt | Their BSD, MIT, ISC and public-domain notices are retained in `runtime/licences/decoder-components`. `PROVENANCE.json` distinguishes exact source extracts from supplementary pinned upstream texts. No AirSpy vendor DLL is included. |
+
+The project-authored `frw-pty` supervisor and generated guest probe helpers are supplied under the MIT licence with source and licence text in `work/source-delivery`. The supervisor's Cygwin runtime dependency uses the existing Cygwin licence and linking exception described above. The generated guest helpers implement only the documented discovery probes; they are not Bash or general Linux process tools.
+
+The decoder's top-level MIT notice does not replace the separate licences in its compiled dependencies. A binary release needs the exact full corresponding decoder source and matching overlays, matching runtime sources and current controller/helper build instructions. The previous companion source snapshot predates the latest runtime fixes. Public-release preparation is tracked in `RELEASE-READINESS.md`.
+
+The Windows application uses native Qt Widgets, Qt Network and QPainter; it does not launch or bundle a browser or Qt WebEngine. Qt's shared libraries and platform plugin are shipped as separate replaceable files in the one-folder package. The native map requests tiles only as the user views geographic areas; its bounded disk cache is in the app's user profile.
+
+The public controller/UI source is openly reusable under its declared GPL licence. A public binary release is a separate deliverable: it requires a resolved vendor redistribution path, full corresponding-source access and exact dependency notices. Those binaries are not published with the source snapshot. A project's source licence cannot grant rights over another vendor's software.
+## OurAirports offline reference
+
+The native application includes a reduced airport reference from David Megginson's OurAirports open-data repository, commit `845fd124acca9a13d076f3ab957d3eecf46721fc`, captured 17 November 2026. It includes 5,282 large and medium airports for offline code/name/coordinate search. The repository's `LICENSE` dedicates the data to the public domain under the Unlicense; the exact licence is bundled at `frw/data/ourairports-LICENSE.txt`. Provenance and source/licence SHA-256 values are in `frw/data/airports-provenance.json`. The upstream source is https://github.com/davidmegginson/ourairports-data . Reference data has no accuracy/fitness warranty and is not a navigation database. Airport proximity observations do not establish routes or airport movements.
