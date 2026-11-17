@@ -8,6 +8,7 @@
 - Added a safe, prefilled support report template, guide export and copyable project/issue addresses.
 - Unified the app/installer version and documented supported versus tested USB hardware.
 - Prepared a public source repository with fresh history, GPL v3-or-later licensing, user/developer documentation and synthetic screenshots. Private evidence and optional native/vendor binaries are excluded.
+- Added a downloadable Windows x64 receiver installer with bundled offline USB setup and an optional, integrity-checked sharing-component download from Flightradar24. The proprietary feeder is not in the public installer. Matching dependency sources, source digests and build instructions accompany the release.
 
 ## 0.3.0
 

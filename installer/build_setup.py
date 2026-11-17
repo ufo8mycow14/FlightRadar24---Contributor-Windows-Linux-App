@@ -56,8 +56,12 @@ def main():
     parser.add_argument('--output', type=Path, default=ROOT/'work/installer-dist')
     parser.add_argument('--iscc', type=Path, required=True, help='Inno Setup 6 compiler executable')
     parser.add_argument('--version', default=__version__)
+    parser.add_argument('--public-release', action='store_true',
+                        help='Exclude the proprietary feeder; offer a verified vendor download during setup')
     args = parser.parse_args()
     package = args.package.resolve()
+    if args.public_release and (package/'runtime/feeder/fr24feed').exists():
+        raise RuntimeError('Public packages must not contain the proprietary feeder executable.')
     drivers = package/'runtime/drivers/winusb'
     required = ('FlightRadar24.exe', 'runtime/decoder/dump1090.exe',
                 'runtime/drivers/winusb/manifest.json', 'runtime/drivers/winusb/wdi-simple.exe')
@@ -74,6 +78,8 @@ def main():
     output.mkdir(parents=True, exist_ok=True)
     command = [str(args.iscc.resolve()), '/DAppSource='+str(package), '/DSetupOutput='+str(output),
                '/DAppVersion='+args.version, str(ROOT/'installer/FlightRadar24.iss')]
+    if args.public_release:
+        command.insert(-1, '/DPublicRelease=1')
     compiled = subprocess.run(command, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                               text=True, encoding='utf-8', errors='replace',
                               creationflags=0x08000000 if os.name == 'nt' else 0)

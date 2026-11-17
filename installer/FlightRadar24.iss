@@ -9,6 +9,9 @@
 #ifndef AppVersion
   #define AppVersion "0.4.0"
 #endif
+#ifndef PublicRelease
+  #define PublicRelease 0
+#endif
 #if !FileExists(AddBackslash(AppSource) + "FlightRadar24.exe")
   #error "Build the complete native FlightRadar24 application first."
 #endif
@@ -44,11 +47,17 @@ InfoBeforeFile=Setup-Info.txt
 
 [Tasks]
 Name: desktopicon; Description: "Create a desktop shortcut"; GroupDescription: "Shortcuts:"
+#if PublicRelease
+Name: fr24sharing; Description: "Install optional Flightradar24 sharing (download from Flightradar24; internet required)"; GroupDescription: "Optional sharing:"; Flags: unchecked
+#endif
 
 [Files]
 Source: "{#AppSource}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
 Source: "Install-UsbDriver.ps1"; DestDir: "{app}\setup"; Flags: ignoreversion
 Source: "Setup-Info.txt"; DestDir: "{app}\setup"; Flags: ignoreversion
+#if PublicRelease
+Source: "Install-Feeder.ps1"; DestDir: "{app}\setup"; Flags: ignoreversion
+#endif
 
 [Icons]
 Name: "{group}\FlightRadar24"; Filename: "{app}\FlightRadar24.exe"; WorkingDir: "{app}"
@@ -62,6 +71,8 @@ var
   DriverSummary: String;
   DriverFailed: Boolean;
   DriverRestart: Boolean;
+  FeederSummary: String;
+  FeederFailed: Boolean;
 
 function GetInstallDirectory(Param: String): String;
 var
@@ -114,12 +125,44 @@ begin
   Log('USB driver setup summary: ' + DriverSummary);
   if DriverFailed and not WizardSilent then
     MsgBox(DriverSummary, mbInformation, MB_OK);
+#if PublicRelease
+  if WizardIsTaskSelected('fr24sharing') then
+  begin
+    WizardForm.StatusLabel.Caption := 'Downloading optional sharing from Flightradar24...';
+    SummaryFile := ExpandConstant('{tmp}\frw-feeder-summary.txt');
+    Parameters := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+      ExpandConstant('{app}\setup\Install-Feeder.ps1') + '" -InstallDirectory "' +
+      ExpandConstant('{app}') + '" -SummaryPath "' + SummaryFile + '"';
+    if not Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+                Parameters, ExpandConstant('{app}'), SW_HIDE, ewWaitUntilTerminated, ResultCode) then
+    begin
+      FeederFailed := True;
+      FeederSummary := 'Optional sharing could not be installed. Local reception is available; run setup again to retry.';
+    end
+    else
+    begin
+      FeederFailed := ResultCode <> 0;
+      if LoadStringFromFile(SummaryFile, SummaryBytes) then
+        FeederSummary := UTF8Decode(SummaryBytes)
+      else if FeederFailed then
+        FeederSummary := 'Optional sharing setup failed. Local reception is available; run setup again to retry.'
+      else
+        FeederSummary := 'Optional Flightradar24 sharing setup completed.';
+      Log('Optional sharing setup exit code: ' + IntToStr(ResultCode));
+    end;
+    Log('Optional sharing setup summary: ' + FeederSummary);
+    if FeederFailed and not WizardSilent then
+      MsgBox(FeederSummary, mbInformation, MB_OK);
+  end;
+#endif
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
   if (CurPageID = wpFinished) and (DriverSummary <> '') then
     WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 + DriverSummary;
+  if (CurPageID = wpFinished) and (FeederSummary <> '') then
+    WizardForm.FinishedLabel.Caption := WizardForm.FinishedLabel.Caption + #13#10#13#10 + FeederSummary;
 end;
 
 function NeedRestart(): Boolean;
@@ -132,6 +175,8 @@ begin
   { Automated deployments must not mistake a failed USB setup for success. }
   if DriverFailed then
     Result := 20
+  else if FeederFailed then
+    Result := 21
   else if DriverRestart then
     Result := 3010
   else

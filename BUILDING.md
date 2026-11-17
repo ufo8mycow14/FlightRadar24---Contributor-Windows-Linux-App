@@ -44,7 +44,7 @@ runtime/
   licenses/qt/  (Qt/PySide licences, provenance and matching-source references)
 ```
 
-The official `fr24feed` binary is proprietary. Obtain it from the vendor under its terms; do not assume a public redistribution right. A complete public binary release is deferred pending that distribution path and the corresponding-source/notice work for the native dependencies. The existing development installer is not uploaded by the source publication.
+The official `fr24feed` binary is proprietary. The public Windows installer excludes it. Its optional sharing task obtains the unchanged, pinned 1.0.57-1 archive directly from the vendor over HTTPS, verifies the archive and executable SHA-256 values, and retains its notices. The receiver and driver setup work without that optional download. See [release and corresponding-source information](docs/RELEASE.md).
 
 Once a complete runtime has been lawfully prepared:
 
@@ -53,6 +53,10 @@ python -m pip install -r requirements.txt -r requirements-desktop.txt -r require
 python build.py --dist-dir C:\FlightRadarBuild\dist --work-dir C:\FlightRadarBuild\build
 python installer/build_setup.py --package C:\FlightRadarBuild\dist\FlightRadar24 --output C:\FlightRadarBuild\setup --iscc 'C:\path\to\ISCC.exe'
 ```
+
+For a public receiver package, prepare the runtime without `runtime/feeder/fr24feed` and pass `--public-release` to `installer/build_setup.py`. That option refuses a package containing the proprietary executable and enables the optional vendor-download task. Keep the compatibility runtime, offline driver helper and all notices. Pair the installer with the matching app source, dependency source archive and SHA256SUMS file on the same release page. `docs/RELEASE-SOURCES.json` records the exact dependency source versions and digests for 0.4.0.
+
+Test the optional download only in disposable folders with `FRW_TEST_VENDOR_DOWNLOAD=1 python -m unittest discover -s tests -p test_feeder_download.py -v`. Without that variable, the official-network integration test is skipped while rejection/preservation tests still run. These checks do not register an account, run a feeder, change a USB driver or read a receiver profile.
 
 Use Inno Setup 6 for the installer. The windowed one-folder package contains `FlightRadar24.exe`, `_internal`, `runtime`, licences and help. Keep them together. Qt shared libraries/plugins remain replaceable, and Qt WebEngine is excluded. For network source checkouts, keep build output/temp files on the build machine.
 

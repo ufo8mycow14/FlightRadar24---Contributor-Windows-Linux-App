@@ -7,3 +7,7 @@ All USB setup components are included for offline use. WinUSB.sys is supplied an
 Automatic USB setup supports composite Realtek RTL2832 receivers with VID 0BDA, PID 2832 or 2838, SDR Interface 0. Other receivers, ambiguous device matches, and enterprise policy restrictions are reported without changing their drivers. A connected and correctly configured SDR and a suitable antenna are needed for live reception.
 
 Flightradar24 uploading requires your own sharing key and a working service connection. No account details are submitted by setup. Settings and sharing keys remain in the original Windows user's application-data profile and are not deleted when the application is uninstalled.
+
+Public downloads include the app and USB driver setup. Optional sharing can be selected during setup; it downloads the unchanged fr24feed 1.0.57-1 component directly from Flightradar24 over HTTPS and verifies its SHA-256. It requires internet access and Windows tar.exe (Windows 10 version 1803 or later). Local reception works without this optional component. You can run setup again later to add it.
+
+The optional official component is proprietary and is licensed only for feeding data to Flightradar24 or its other services. Its full terms and dependency notices are retained under runtime/licences/fr24feed. Installing it does not register an account or enable uploads; configure sharing in Receiver settings yourself.

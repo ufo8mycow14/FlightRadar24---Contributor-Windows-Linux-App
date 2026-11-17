@@ -1,0 +1,94 @@
+{
+  "checked_at_utc": "2026-11-17T12:53:37.800084+00:00",
+  "sources": [
+    {
+      "name": "blink-1.1.0.tar.gz",
+      "version": "1.1.0",
+      "url": "https://github.com/jart/blink/archive/refs/tags/1.1.0.tar.gz",
+      "bytes": 2984430,
+      "sha256": "2649793e1ebf12027f5e240a773f452434cefd9494744a858cd8bff8792dba68",
+      "verified_against": "captured source digest"
+    },
+    {
+      "name": "cygwin-3.6.12-1-src.tar.xz",
+      "version": "3.6.12-1",
+      "url": "https://mirrors.kernel.org/sourceware/cygwin/src/release/cygwin/cygwin-3.6.12-1-src.tar.xz",
+      "bytes": 9318356,
+      "sha256": "a7568019f048f95a61243b0ab389357947851a33ec50d7f6e8d8542aaee00150",
+      "verified_against": "sha512"
+    },
+    {
+      "name": "dump1090-v1.0.1-source.zip",
+      "version": "v1.0.1 / 6a8abff",
+      "url": "https://github.com/gvanem/Dump1090/archive/refs/tags/v1.0.1.zip",
+      "bytes": 50399544,
+      "sha256": "b5d0b606965eaeada24a8c67aa4ec3b2227f6857954b1500b61f2412987eccb5",
+      "verified_against": "sha256"
+    },
+    {
+      "name": "gcc-14.4.0-1-src.tar.zst",
+      "version": "14.4.0-1",
+      "url": "https://mirrors.kernel.org/sourceware/cygwin/x86_64/release/gcc/gcc-14.4.0-1-src.tar.zst",
+      "bytes": 91626118,
+      "sha256": "c8b25799a0b8b33620661db6292ce72ef7264155466642f60a92e2c85b9cff1c",
+      "verified_against": "sha512"
+    },
+    {
+      "name": "pyinstaller-6.22.3.tar.gz",
+      "version": "6.22.3",
+      "url": "https://files.pythonhosted.org/packages/63/41/f90302845945abd4ed647933ff5ee7c6ac93983187be67f897b6cb613331/pyinstaller-6.22.3.tar.gz",
+      "bytes": 4437180,
+      "sha256": "05eb2f5615503e72939a7224d68b4aff572c6b0438ee4a17d0a4b481f399362d",
+      "verified_against": "sha256"
+    },
+    {
+      "name": "pymodes-3.7.0.tar.gz",
+      "version": "3.7.0",
+      "url": "https://files.pythonhosted.org/packages/61/03/d3168619ecbfba21fd3f4d432bbe87af83f8f2b869f85da1f9975fb8624d/pymodes-3.7.0.tar.gz",
+      "bytes": 178171,
+      "sha256": "49b5f0c7413a0ce7e9a843518a7d2b55b28b999367f1656c2b429d3678e9bffa",
+      "verified_against": "sha256"
+    },
+    {
+      "name": "pyserial-3.5.tar.gz",
+      "version": "3.5",
+      "url": "https://files.pythonhosted.org/packages/1e/7d/ae3f0a63f41e4d2f6cb66a5b57197850f919f59e558159a4dd3a818f5082/pyserial-3.5.tar.gz",
+      "bytes": 159125,
+      "sha256": "3c77e014170dfffbd816e6ffc205e9842efb10be9f58ec16d3e8675b4925cddb",
+      "verified_against": "sha256"
+    },
+    {
+      "name": "pyside-setup-everywhere-src-6.11.3.tar.xz",
+      "version": "6.11.3",
+      "url": "https://download.qt.io/official_releases/QtForPython/pyside6/PySide6-6.11.3-src/pyside-setup-everywhere-src-6.11.3.tar.xz",
+      "bytes": 18063176,
+      "sha256": "050819cb05e14d6689f42b56e4fa9c8ff63be2bb339e0c094c45b990b7cabde1",
+      "verified_against": "sha256"
+    },
+    {
+      "name": "qtbase-everywhere-src-6.11.3.tar.xz",
+      "version": "6.11.3",
+      "url": "https://download.qt.io/official_releases/qt/6.11/6.11.3/submodules/qtbase-everywhere-src-6.11.3.tar.xz",
+      "bytes": 50715968,
+      "sha256": "46de0710b594945a5d446ae44354daa386141c6903c53781b2ca547bc62f8f8f",
+      "verified_against": "sha256"
+    },
+    {
+      "name": "qtimageformats-everywhere-src-6.11.3.tar.xz",
+      "version": "6.11.3",
+      "url": "https://download.qt.io/official_releases/qt/6.11/6.11.3/submodules/qtimageformats-everywhere-src-6.11.3.tar.xz",
+      "bytes": 2055552,
+      "sha256": "2759929c7abbc5376120394d1ccac1abbb816bc2791b34ece6c1412d323e6213",
+      "verified_against": "sha256"
+    },
+    {
+      "name": "qtsvg-everywhere-src-6.11.3.tar.xz",
+      "version": "6.11.3",
+      "url": "https://download.qt.io/official_releases/qt/6.11/6.11.3/submodules/qtsvg-everywhere-src-6.11.3.tar.xz",
+      "bytes": 2341756,
+      "sha256": "9bdf6fa4b5a2d91c3eaa2edd12263fdff0ae19d0ac25d3c99946cd4189a07123",
+      "verified_against": "sha256"
+    }
+  ],
+  "errors": []
+}
