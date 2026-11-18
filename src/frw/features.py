@@ -10,6 +10,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from .aircraft import distance_nm
 from .config import ConfigError, protect
+from .display import DISPLAY_DEFAULT, validate_display
 
 FILTER_DEFAULT = dict(callsigns='', icaos='', squawks='', altitude_min=None, altitude_max=None,
                       speed_min=None, speed_max=None, distance_max=None, source='any',
@@ -20,6 +21,7 @@ FEATURE_DEFAULT = {
     'alerts_enabled': False, 'rules': [], 'quiet_start': '', 'quiet_end': '',
     'history_enabled': True, 'retention_days': 30, 'storage_mb': 256,
     'sample_seconds': 15, 'log_max_mb': 20, 'log_days': 3, 'airports': [],
+    'display': copy.deepcopy(DISPLAY_DEFAULT),
     'delivery': {'email_enabled': False, 'smtp_host': '', 'smtp_port': 587,
                  'smtp_user': '', 'smtp_from': '', 'email_to': '', 'smtp_tls': 'starttls',
                  'webhook_enabled': False, 'webhook_kind': 'ntfy'},
@@ -107,6 +109,7 @@ def validate_features(value):
     c = copy.deepcopy(FEATURE_DEFAULT)
     c.update(copy.deepcopy(value))
     c['filter'] = validate_filter(c['filter'])
+    c['display'] = validate_display(c.get('display'))
     for key in ('filter_enabled', 'alerts_enabled', 'history_enabled'):
         if type(c[key]) is not bool:
             raise ConfigError(key + ' must be true or false.')

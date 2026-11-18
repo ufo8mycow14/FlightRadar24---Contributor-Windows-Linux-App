@@ -215,13 +215,13 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.refresh()
         self.assertIn('Recorded playback', self.window.health.text())
         self.assertIn('Recorded playback', self.window.map.summary.text())
-        self.assertEqual(self.window.table.item(0, 8).text(), 'Recorded')
+        self.assertEqual(self.window.table.item(0, 10).text(), 'Recorded')
         self.assertIn('Upload: Disabled (recorded playback)', self.window.feed_status.text())
         self.window.config.update(receiver='usb', feed_enabled=False)
         self.receiver.status['input'] = 'usb'
         self.refresh()
         self.assertIn('Live positions', self.window.map.summary.text())
-        self.assertEqual(self.window.table.item(0, 8).text(), 'Live')
+        self.assertEqual(self.window.table.item(0, 10).text(), 'Live')
         self.assertIn('Upload: Disabled', self.window.feed_status.text())
         self.assertNotIn('Upload: connected', self.window.feed_status.text())
 

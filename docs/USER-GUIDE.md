@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.4.0 · Kieran O'Rourke
+Version 0.5.0 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -161,12 +161,22 @@ Airspace combines a worldwide geographic map with a local range radar and receiv
 3. Choose Antenna to return to your receiver location, or Fit aircraft to include current received positions.
 4. Drag the splitters to change map, radar, table and details proportions. Close the details panel to regain space.
 5. Open Filters to limit displayed traffic. Clear filters to restore all received aircraft.
+6. Use Find (Ctrl+F) to jump to a callsign or ICAO address without changing your saved filters. Click a column heading to sort the table; aircraft missing that value stay at the bottom.
+7. Distance and Bearing are measured from your antenna latitude/longitude. Leave the station position unset and those columns stay blank rather than guessing.
+8. A red row and red map ring mark a broadcast emergency squawk (7500, 7600 or 7700) or transponder emergency state. It is shown as received and is not independently verified.
+9. Window size, splitter proportions and panel layout are remembered for next time. View can hide the range radar or table when you want the map to use the full space.
 
 ### Internet and freshness
 
 OpenStreetMap background tiles require internet access and have a separate 64 MiB cache. Attribution stays visible. The tile provider sees map-area requests and your IP address, not your aircraft payload or sharing key.
 
 The range radar works without map tiles. Track lines are recent session observations, not a reconstructed full route. Stale or missing positions are not current aircraft locations.
+
+### Display units, labels and range rings
+
+Receiver & settings → Storage & alerts → Display & units chooses aviation units (feet, knots, nautical miles) or metric conversions (metres, km/h, kilometres), map label detail, station range rings and keeping the selected aircraft centred. These choices affect presentation only; reception, uploading, alerts and history keep broadcast values.
+
+Altitude at or above 10,000 ft is also shown as an approximate flight level, for example 35,000 ft · FL350. The receiver cannot confirm the pressure setting, so treat FL as shorthand. Metric values are converted from the broadcast feet and knots, not re-measured. Up/down arrows summarise the broadcast vertical rate; a level arrow covers rates within ±100 ft/min.
 
 <a id="details"></a>
 ## Read the aircraft details panel

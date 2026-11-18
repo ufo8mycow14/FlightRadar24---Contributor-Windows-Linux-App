@@ -1,5 +1,12 @@
 # Changes
 
+## 0.5.0
+
+- Modernised the Airspace workspace: aviation/metric display units with flight levels, distance and bearing from your antenna, climb/descent trend arrows, on-ground state, and red emergency-squawk highlighting in the table and on the map.
+- Added a Find box (Ctrl+F), click-to-sort table columns (missing values stay last), station range rings, detailed map labels, follow-selected map centring, and View toggles for the radar and table.
+- Window geometry, splitter proportions and layout are now remembered between launches; the header also reports maximum received range and any emergency squawks.
+- Display preferences live under Receiver & settings → Storage & alerts → Display & units and affect presentation only — reception, uploading, filters, alerts and history are unchanged. Existing profiles migrate automatically.
+
 ## 0.4.0
 
 - Added a native Support menu and searchable offline help covering receiver setup, airspace, filters, alerts, statistics, storage, sharing and troubleshooting.
@@ -17,3 +24,4 @@
 ## 0.2.x
 
 - Introduced the standalone Qt desktop, native worldwide map and broadcast details, offline WinUSB provisioning for allowed devices and Linux build adapters.
+

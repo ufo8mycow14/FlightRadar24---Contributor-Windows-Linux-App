@@ -553,6 +553,17 @@ class FeaturePreferences(QScrollArea):
         layout.setContentsMargins(18,16,18,18)
         self.feedback=label('');layout.addWidget(self.feedback)
         model.notice.connect(lambda message,error:self.feedback.setText(message))
+        displaybox=QGroupBox('Display & units');displayform=QFormLayout(displaybox)
+        self.display_units=QComboBox()
+        for title,key in [('Aviation — feet, knots, nautical miles','aviation'),('Metric — metres, km/h, kilometres','metric')]:self.display_units.addItem(title,key)
+        displayform.addRow('Units',self.display_units)
+        self.display_labels=QComboBox()
+        for title,key in [('Callsign only','callsign'),('Callsign, altitude and speed','detailed'),('No labels (selected aircraft only)','none')]:self.display_labels.addItem(title,key)
+        displayform.addRow('Map labels',self.display_labels)
+        self.display_rings=QCheckBox('Show range rings around my antenna on the map');displayform.addRow(self.display_rings)
+        self.display_follow=QCheckBox('Keep the selected aircraft centred on the map');displayform.addRow(self.display_follow)
+        displayform.addRow(label('Display choices change presentation only. Reception, uploading, filters, alerts and recorded history always use the values as broadcast. Altitude at or above 10,000 ft is also shown as an approximate flight level (FL). Metric values are converted from the broadcast feet/knots; nothing is re-measured. Distance and bearing need your antenna latitude/longitude in receiver settings.'))
+        layout.addWidget(displaybox)
         storage=QGroupBox('History & disk budget');form=QFormLayout(storage)
         self.history=QCheckBox('Collect structured reception statistics and sampled observations')
         form.addRow(self.history)
@@ -603,6 +614,10 @@ class FeaturePreferences(QScrollArea):
             for key,control in self.fields.items():
                 value=config.get(key,config['delivery'].get(key))
                 control.setValue(value) if isinstance(control,QSpinBox) else control.setText(value)
+            display=config.get('display') or {}
+            self.display_units.setCurrentIndex(max(0,self.display_units.findData(display.get('units','aviation'))))
+            self.display_labels.setCurrentIndex(max(0,self.display_labels.findData(display.get('map_labels','callsign'))))
+            self.display_rings.setChecked(bool(display.get('range_rings',True)));self.display_follow.setChecked(bool(display.get('follow_selected',False)))
             self.email_enabled.setChecked(config['delivery']['email_enabled']);self.webhook_enabled.setChecked(config['delivery']['webhook_enabled'])
             self.tls.setCurrentIndex(self.tls.findData(config['delivery']['smtp_tls']));self.webkind.setCurrentIndex(self.webkind.findData(config['delivery']['webhook_kind']))
         fill_table(self.airport_table,config['airports'],['code','name','latitude','longitude','radius_nm'])
@@ -611,6 +626,7 @@ class FeaturePreferences(QScrollArea):
     def save(self):
         changes={key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in FEATURE_DEFAULT}
         changes['history_enabled']=self.history.isChecked()
+        changes['display']={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),'range_rings':self.display_rings.isChecked(),'follow_selected':self.display_follow.isChecked()}
         delivery=copy.deepcopy(self.model.value['delivery'])
         delivery.update({key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in delivery})
         delivery.update(email_enabled=self.email_enabled.isChecked(),webhook_enabled=self.webhook_enabled.isChecked(),smtp_tls=self.tls.currentData(),webhook_kind=self.webkind.currentData())

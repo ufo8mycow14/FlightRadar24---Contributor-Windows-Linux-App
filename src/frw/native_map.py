@@ -11,6 +11,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache, QNetwork
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .native_details import NativeAircraftDetails
+from .display import DISPLAY_DEFAULT, destination_point, flight_level, is_emergency
 
 TILE_SIZE = 256
 MAX_LATITUDE = 85.05112878
@@ -74,6 +75,7 @@ class _MapCanvas(QWidget):
         self.rows = []
         self.station = None
         self.selected = ''
+        self.display = dict(DISPLAY_DEFAULT)
         self._tiles = OrderedDict()
         self._failed = {}
         self._inflight = {}
@@ -200,6 +202,8 @@ class _MapCanvas(QWidget):
                     reference = x
                 painter.setPen(QPen(QColor('#ba7a04' if chosen else '#238a78'), 3 if chosen else 2))
                 painter.drawPolyline(QPolygonF(points))
+        if self.station is not None and self.display.get('range_rings', True):
+            self._draw_range_rings(painter)
         if self.station is not None:
             center = self._screen(*self.station)
             painter.setPen(QPen(QColor('white'), 2))
@@ -212,15 +216,31 @@ class _MapCanvas(QWidget):
             if not QRectF(self.rect()).adjusted(-40, -40, 40, 40).contains(point):
                 continue
             chosen = row.get('icao') == self.selected
+            emergency = is_emergency(row)
             _plane(painter, point, row.get('track'), chosen)
+            if emergency:
+                painter.setPen(QPen(QColor('#c62f3b'), 2))
+                painter.setBrush(Qt.BrushStyle.NoBrush)
+                painter.drawEllipse(point, 20, 20)
+            mode = self.display.get('map_labels', 'callsign')
             label = str(row.get('callsign') or row.get('icao') or '').strip()
-            width = painter.fontMetrics().horizontalAdvance(label) + 8
-            box = QRectF(point.x() + 15, point.y() - 10, width, 20)
-            painter.setPen(QPen(QColor('#bd933e' if chosen else '#8bbcaf'), 1))
-            painter.setBrush(QColor('#fff1ce' if chosen else '#f2fffb'))
-            painter.drawRoundedRect(box, 3, 3)
-            painter.setPen(QColor('#172e3d'))
-            painter.drawText(box, Qt.AlignmentFlag.AlignCenter, label)
+            detail = ''
+            if mode == 'detailed' or chosen:
+                level = flight_level(row.get('altitude'))
+                alt = f'FL{level}' if level is not None else (f"{row['altitude']:,.0f} ft" if _number(row.get('altitude')) else '')
+                spd = f"{row['groundspeed']:,.0f} kt" if _number(row.get('groundspeed')) else ''
+                detail = ' · '.join(part for part in (alt, spd) if part)
+            show_label = mode != 'none' or chosen or emergency
+            box = QRectF(point.x() + 15, point.y() - 10, 0, 0)
+            if show_label and label:
+                lines = [label] + ([detail] if detail else [])
+                width = max(painter.fontMetrics().horizontalAdvance(line) for line in lines) + 10
+                box = QRectF(point.x() + 15, point.y() - 10, width, 20 if len(lines) == 1 else 34)
+                painter.setPen(QPen(QColor('#c62f3b' if emergency else '#bd933e' if chosen else '#8bbcaf'), 1.5 if emergency else 1))
+                painter.setBrush(QColor('#ffe9ea' if emergency else '#fff1ce' if chosen else '#f2fffb'))
+                painter.drawRoundedRect(box, 3, 3)
+                painter.setPen(QColor('#7a1220' if emergency else '#172e3d'))
+                painter.drawText(box, Qt.AlignmentFlag.AlignCenter, '\n'.join(lines))
             self._markers.append((str(row.get('icao', '')), point, box))
         painter.setClipping(False)
         painter.setPen(QColor('#163645'))
@@ -231,6 +251,31 @@ class _MapCanvas(QWidget):
         self._draw_scale(painter)
         painter.end()
         self._pump_tiles()
+
+    def _draw_range_rings(self, painter):
+        """Station-centred range rings; distances are great-circle NM/km from the antenna."""
+        metric = self.display.get('units') == 'metric'
+        steps = (25, 50, 100, 150, 200, 250, 300) if not metric else (50, 100, 200, 300, 400, 500)
+        origin = self._screen(*self.station)
+        painter.save()
+        painter.setFont(QFont('Segoe UI', 8))
+        for step in steps:
+            distance_nm = step / 1.852 if metric else float(step)
+            points = []
+            for bearing in range(0, 361, 6):
+                lat, lon = destination_point(self.station[0], self.station[1], bearing, distance_nm)
+                points.append(self._screen(lat, lon))
+            radius = max(abs(points[0].y() - origin.y()), abs(points[15].x() - origin.x()))
+            if radius < 24 or radius > max(self.width(), self.height()) * 1.6:
+                continue
+            painter.setPen(QPen(QColor(8, 119, 104, 110), 1, Qt.PenStyle.DashLine))
+            painter.setBrush(Qt.BrushStyle.NoBrush)
+            painter.drawPolyline(QPolygonF(points))
+            label = f'{step} km' if metric else f'{step} NM'
+            top = points[0]
+            painter.setPen(QColor('#087768'))
+            painter.drawText(QRectF(top.x() + 4, top.y() - 9, 64, 16), label)
+        painter.restore()
 
     def _banner(self, painter, text, y):
         box = QRectF(10, y, max(50, self.width() - 20), 30)
@@ -396,6 +441,10 @@ class NativeMap(QWidget):
                              + (f' · {len(rows) - count} awaiting coordinates' if len(rows) != count else ''))
         self.home_button.setEnabled(station is not None)
         self.fit_button.setEnabled(bool(count))
+        self.canvas.update()
+
+    def set_display(self, display):
+        self.canvas.display = {**DISPLAY_DEFAULT, **(display or {})}
         self.canvas.update()
 
     def center_home(self):
