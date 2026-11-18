@@ -76,6 +76,7 @@ class _MapCanvas(QWidget):
         self.station = None
         self.selected = ''
         self.banner_left = 10
+        self.bottom_reserved = 0
         self.display = dict(DISPLAY_DEFAULT)
         self._tiles = OrderedDict()
         self._failed = {}
@@ -248,7 +249,7 @@ class _MapCanvas(QWidget):
         if not self.rows:
             self._banner(painter, 'Waiting for aircraft with a position. Aircraft without coordinates remain in the list.', 46)
         if self._tile_problem:
-            self._banner(painter, 'Map tiles unavailable. Aircraft positions and range radar still update.', self.height() - 42)
+            self._banner(painter, 'Map tiles unavailable. Aircraft positions and range rings still update.', self.height() - self.bottom_reserved - 52)
         self._draw_scale(painter)
         self._draw_compass(painter)
         painter.end()
@@ -347,7 +348,7 @@ class _MapCanvas(QWidget):
         magnitude = 10 ** math.floor(math.log10(desired))
         distance = next((n * magnitude for n in (5, 2, 1) if n * magnitude <= desired), magnitude / 2)
         width = distance / metres_per_pixel
-        y = self.height() - (48 if getattr(self.parent(), 'attribution', None) is not None and self.parent().attribution.parent() is self else 13)
+        y = self.height() - self.bottom_reserved - (48 if getattr(self.parent(), 'attribution', None) is not None and self.parent().attribution.parent() is self else 13)
         x = self.width() - width - 22
         label = f'{distance / 1000:g} km' if distance >= 1000 else f'{distance:g} m'
         painter.fillRect(QRectF(x - 6, y - 24, max(90, width + 12), 30), QColor(255, 255, 255, 220))
@@ -499,37 +500,47 @@ class NativeMap(QWidget):
         width, height = self.canvas.width(), self.canvas.height()
         if width <= 0 or height <= 0:
             return
-        # External panels first: their occupied left edge determines where the
-        # summary and transient message chips can sit without covering them.
-        occupied_left = 0
-        list_width = 0
+        # Bottom drawer first: it reserves vertical space at the map bottom.
+        bottom_reserved = 0
         for widget, anchor in self._overlays:
-            if anchor == 'left':
-                widget.move(10, 10)
-                widget.setFixedHeight(max(160, height - 20))
+            if anchor == 'bottom-full':
+                wanted = getattr(widget, '_overlay_height', 280)
+                actual = max(40, min(wanted, max(40, height - 70)))
+                widget.setFixedWidth(max(200, width - 20))
+                widget.setFixedHeight(actual)
+                widget.move(10, height - actual - 10)
                 if not widget.isHidden():
-                    list_width = widget.width()
-                    occupied_left = max(occupied_left, 10 + list_width)
-        for widget, anchor in self._overlays:
-            if anchor == 'details-left':
-                x = 20 + list_width if list_width else 10
-                if x + widget.width() > width - 10:
-                    x = 10
-                widget.move(x, 10)
-                widget.setFixedHeight(max(180, height - 20))
-                if not widget.isHidden():
-                    occupied_left = max(occupied_left, x + widget.width())
-        # Retained generic anchors for compatibility with other callers/tests.
-        for widget, anchor in self._overlays:
-            if anchor == 'bottom' and not widget.isHidden():
+                    bottom_reserved = actual + 10
+            elif anchor == 'bottom' and not widget.isHidden():
                 widget.setFixedWidth(max(200, width - 20))
                 widget.adjustSize()
                 widget.move(10, height - widget.height() - 8)
+                bottom_reserved = max(bottom_reserved, widget.height() + 8)
             elif anchor == 'bottom-left':
-                wanted = getattr(widget, '_overlay_height', 300)
+                wanted = getattr(widget, '_overlay_height', 280)
                 actual = max(40, min(wanted, max(40, height - 70)))
                 widget.setFixedHeight(actual)
                 widget.move(10, height - actual - 10)
+                if not widget.isHidden():
+                    bottom_reserved = max(bottom_reserved, actual + 10)
+        self.canvas.bottom_reserved = bottom_reserved
+        # Left panels next: a compact details popup, capped in height and
+        # kept above the bottom drawer rather than running full-length.
+        occupied_left = 0
+        for widget, anchor in self._overlays:
+            if anchor == 'left':
+                widget.move(10, 10)
+                widget.setFixedHeight(max(160, height - bottom_reserved - 20))
+                if not widget.isHidden():
+                    occupied_left = max(occupied_left, 10 + widget.width())
+        for widget, anchor in self._overlays:
+            if anchor == 'details-left':
+                wanted = getattr(widget, '_overlay_height', 540)
+                available = max(180, height - bottom_reserved - 24)
+                widget.setFixedHeight(min(wanted, available))
+                widget.move(10, 10)
+                if not widget.isHidden():
+                    occupied_left = max(occupied_left, 10 + widget.width())
         free_x = occupied_left + 10 if occupied_left else 10
         self.canvas.banner_left = free_x
         free_width = max(0, width - free_x - 120)  # leave room for the compass
@@ -544,10 +555,13 @@ class NativeMap(QWidget):
                 widget.adjustSize()
                 widget.move(free_x + max(0, (free_width - widget.width()) // 2), 46)
         self._controls.adjustSize()
-        self._controls.move(width - self._controls.width() - 10, max(92, height // 2 - self._controls.height() // 2))
+        usable_height = max(120, height - bottom_reserved)
+        self._controls.move(width - self._controls.width() - 10,
+                            max(92, usable_height // 2 - self._controls.height() // 2))
         if self.attribution.parent() is self.canvas:
             self.attribution.adjustSize()
-            self.attribution.move(width - self.attribution.width() - 8, height - self.attribution.height() - 6)
+            self.attribution.move(width - self.attribution.width() - 8,
+                                  height - bottom_reserved - self.attribution.height() - 6)
             self.attribution.raise_()
         self.summary.raise_(); self._controls.raise_()
         for widget, _anchor in self._overlays:

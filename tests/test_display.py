@@ -192,8 +192,8 @@ class WorkspaceTests(unittest.TestCase):
 
     def test_map_first_layout_and_list_overlay(self):
         # The range-radar box is gone; reception/sharing status is in the very
-        # top bar, attribution in the bottom bar, the aircraft list runs the
-        # full length at left, and details pop up floating beside it.
+        # top bar, attribution in the bottom bar, the aircraft list floats
+        # along the bottom spanning the map, and details pop up at the left.
         self.assertFalse(hasattr(self.window, 'radar'))
         self.assertFalse(hasattr(self.window, 'details_dock'))
         self.assertFalse(hasattr(self.window, 'status_panel'))
@@ -205,14 +205,16 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIs(self.window.feed_status.parent(), self.window.top_status)
         self.assertIs(self.window.health.parent(), self.window.top_status)
         anchors = {id(widget): anchor for widget, anchor in self.window.map._overlays}
-        self.assertEqual(anchors[id(self.window.list_panel)], 'left')
+        self.assertEqual(anchors[id(self.window.list_panel)], 'bottom-full')
         self.assertEqual(anchors[id(self.window.details_panel)], 'details-left')
         self.assertEqual(anchors[id(self.window.message)], 'top-message')
         self.assertIs(self.window.table.parent(), self.window._list_body)
-        wide = self.window.list_panel.width()
+        self.assertEqual(self.window.list_panel._overlay_height, 280)
         self.window._set_list_collapsed(True)
-        self.assertLess(self.window.list_panel.width(), wide)
+        self.assertEqual(self.window.list_panel._overlay_height, 42)
+        self.assertLess(self.window.list_panel.height(), 280)
         self.window._set_list_collapsed(False)
+        self.assertEqual(self.window.details_panel._overlay_height, 540)
         self.assertTrue(self.window.details_panel.isHidden())
         self.window.select_aircraft('7C0001')
         self.assertFalse(self.window.details_panel.isHidden())

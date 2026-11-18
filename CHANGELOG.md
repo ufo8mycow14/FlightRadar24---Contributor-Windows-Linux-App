@@ -1,5 +1,10 @@
 # Changes
 
+## 0.6.2
+
+- Corrected the aircraft list placement: it is again a floating box along the bottom of the map, now spanning the map's length at a modest depth (collapsible to a slim bar), with Find and filter controls reorganised into two compact rows so more of the box is table.
+- Selected-aircraft details are back to a compact floating popup at the left (capped height, scrolling) instead of a full-height panel.
+
 ## 0.6.1
 
 - Layout corrections from live use: reception metrics, sharing status and receiver status now run across the very top bar (right-aligned before the window buttons) instead of a bottom strip; transient notices appear as a chip over the map.

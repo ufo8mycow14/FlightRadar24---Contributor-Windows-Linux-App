@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.6.1 · Kieran O'Rourke
+Version 0.6.2 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -152,14 +152,14 @@ Use the same accurate antenna location and altitude for the official feeder regi
 <a id="map"></a>
 ## Map, rings and the aircraft list
 
-Airspace is a near-full-screen worldwide map. Reception and sharing status run across the very top bar, the aircraft list runs the full length at the left, clicking a plane pops its live details up floating beside the list, and map attribution sits in the bottom bar at the right. Aircraft with no decoded position still appear in the list.
+Airspace is a near-full-screen worldwide map. Reception and sharing status run across the very top bar, the aircraft list floats in a box along the bottom spanning the map, clicking a plane pops its live details up in a compact floating box at the left, and map attribution sits in the bottom bar at the right. Aircraft with no decoded position still appear in the list.
 
 ### Explore your airspace
 
 1. Drag the map to pan. Double-click to zoom in one level around that point; use the +/− overlay buttons or wheel to adjust further.
-2. Select an aircraft marker or list row and its live details pop up in a floating box beside the list on the left (covering it on narrow windows); close it with its × button. Double-click a row to centre that aircraft.
+2. Select an aircraft marker or list row and its live details pop up in a compact floating box at the left (covering the map there on narrow windows); close it with its × button. Double-click a row to centre that aircraft.
 3. Use the antenna button (◎) to return to your receiver location, or the fit button (⛶) to include current received positions.
-4. Collapse the full-length aircraft list to a slim rail with its ‹ button (or View → Aircraft list) whenever you want the map completely clear; it reopens the same way.
+4. Collapse the bottom aircraft box to a slim bar with its ▾ button (or View → Aircraft list) whenever you want the map completely clear; it reopens the same way.
 5. Open Filters to limit displayed traffic. Clear filters to restore all received aircraft.
 6. Use Find (Ctrl+F) to jump to a callsign or ICAO address without changing your saved filters. Click a column heading to sort the list; aircraft missing that value stay at the bottom.
 7. Distance, bearing and the dotted rings are measured from your antenna latitude/longitude; rings step every 50 nautical miles (or kilometres in metric display). Leave the station position unset and those stay blank rather than guessing.
