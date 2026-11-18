@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.5.0 · Kieran O'Rourke
+Version 0.6.0 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -9,7 +9,7 @@ All example aircraft, coordinates and delivery addresses are dummy data. Practic
 - [USB, network, serial and recording inputs](#inputs)
 - [Gain, sample rate and receiver tuning](#tuning)
 - [Antenna location, altitude and range](#location)
-- [Map, range radar and aircraft table](#map)
+- [Map, rings and the aircraft list](#map)
 - [Read the aircraft details panel](#details)
 - [Create and save aircraft filters](#filters)
 - [Watch an aircraft or an emergency code](#alerts)
@@ -150,33 +150,35 @@ Enter both latitude and longitude or leave both blank. The map starts globally w
 Use the same accurate antenna location and altitude for the official feeder registration. MLAT also depends on timestamp quality, surrounding stations and vendor permission.
 
 <a id="map"></a>
-## Map, range radar and aircraft table
+## Map, rings and the aircraft list
 
-Airspace combines a worldwide geographic map with a local range radar and received-aircraft table. Aircraft with no decoded position can still appear in the table.
+Airspace is a near-full-screen worldwide map. The aircraft list, find and filters float in a box along the bottom, clicking a plane pops its live details up in a floating box on the left, and reception and sharing status run along the very bottom. Aircraft with no decoded position still appear in the list.
 
 ### Explore your airspace
 
-1. Drag the map to pan. Double-click to zoom in one level around that point; use the zoom controls or wheel to adjust further.
-2. Select an aircraft marker or table row to open its live details. Double-click a table row to centre that aircraft.
-3. Choose Antenna to return to your receiver location, or Fit aircraft to include current received positions.
-4. Drag the splitters to change map, radar, table and details proportions. Close the details panel to regain space.
+1. Drag the map to pan. Double-click to zoom in one level around that point; use the +/− overlay buttons or wheel to adjust further.
+2. Select an aircraft marker or list row and its live details pop up in a floating box on the left; close it with its × button. Double-click a row to centre that aircraft.
+3. Use the antenna button (◎) to return to your receiver location, or the fit button (⛶) to include current received positions.
+4. Collapse the bottom aircraft list with its ‹ button (or View → Aircraft list) whenever you want the map completely clear; it reopens the same way.
 5. Open Filters to limit displayed traffic. Clear filters to restore all received aircraft.
-6. Use Find (Ctrl+F) to jump to a callsign or ICAO address without changing your saved filters. Click a column heading to sort the table; aircraft missing that value stay at the bottom.
-7. Distance and Bearing are measured from your antenna latitude/longitude. Leave the station position unset and those columns stay blank rather than guessing.
+6. Use Find (Ctrl+F) to jump to a callsign or ICAO address without changing your saved filters. Click a column heading to sort the list; aircraft missing that value stay at the bottom.
+7. Distance, bearing and the dotted rings are measured from your antenna latitude/longitude; rings step every 50 nautical miles (or kilometres in metric display). Leave the station position unset and those stay blank rather than guessing.
 8. A red row and red map ring mark a broadcast emergency squawk (7500, 7600 or 7700) or transponder emergency state. It is shown as received and is not independently verified.
-9. Window size, splitter proportions and panel layout are remembered for next time. View can hide the range radar or table when you want the map to use the full space.
+9. Window size and layout are remembered for next time. Close the details panel to regain space.
 
 ### Internet and freshness
 
 OpenStreetMap background tiles require internet access and have a separate 64 MiB cache. Attribution stays visible. The tile provider sees map-area requests and your IP address, not your aircraft payload or sharing key.
 
-The range radar works without map tiles. Track lines are recent session observations, not a reconstructed full route. Stale or missing positions are not current aircraft locations.
+Range rings, the compass and aircraft positions work without map tiles. Track lines are recent session observations, not a reconstructed full route. Stale or missing positions are not current aircraft locations.
 
-### Display units, labels and range rings
+### Display units, labels, rings and north reference
 
 Receiver & settings → Storage & alerts → Display & units chooses aviation units (feet, knots, nautical miles) or metric conversions (metres, km/h, kilometres), map label detail, station range rings and keeping the selected aircraft centred. These choices affect presentation only; reception, uploading, alerts and history keep broadcast values.
 
 Altitude at or above 10,000 ft is also shown as an approximate flight level, for example 35,000 ft · FL350. The receiver cannot confirm the pressure setting, so treat FL as shorthand. Metric values are converted from the broadcast feet and knots, not re-measured. Up/down arrows summarise the broadcast vertical rate; a level arrow covers rates within ±100 ft/min.
+
+The compass and the N/E/S/W labels on the rings follow your chosen north reference. The background map itself is drawn with true north up. For magnetic bearings, enter the current magnetic variation for your antenna location from a chart (degrees, east positive); the compass, cardinals and table bearings then read in degrees magnetic (°M). The app does not calculate variation itself.
 
 <a id="details"></a>
 ## Read the aircraft details panel
@@ -571,7 +573,7 @@ Work from the source outward: USB visibility, decoder status, messages, position
 2. If the receiver cannot start, read Logs & diagnostics. Check decoder index, source address, port conflicts, driver access and recording path.
 3. If messages arrive but coverage is sparse, improve the 1090 MHz antenna and placement. An unsuitable indoor antenna can receive very little.
 4. If the table has aircraft but the map is empty, clear filters and inspect position age. Some messages carry no coordinates.
-5. If aircraft/radar work but the basemap is blank, check internet availability and tile-service errors. Offline range radar remains usable.
+5. If aircraft/radar work but the basemap is blank, check internet availability and tile-service errors. Offline range rings remains usable.
 6. If history is missing, check recording enabled, Live/Playback selection, retention, size budget and history error/drop counters.
 
 ### Do not mistake status for evidence

@@ -56,7 +56,7 @@ class NativeFeatureTests(unittest.TestCase):
         self.wait(lambda:not self.window.feature_model.pending)
         self.assertEqual(self.window.table.rowCount(),1)
         self.assertEqual([r['icao'] for r in self.window.map.canvas.rows],['ABC123'])
-        self.assertEqual([r['icao'] for r in self.window.radar.canvas.rows],['ABC123'])
+        self.assertEqual([r['icao'] for r in self.window.map.canvas.rows],['ABC123'])
         self.assertEqual(self.receiver.settings.value,before)
         self.assertTrue((Path(self.temp.name)/'features.json').exists())
         self.window.feature_model.save({'filter_enabled':False})

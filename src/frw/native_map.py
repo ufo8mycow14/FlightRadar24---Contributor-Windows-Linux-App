@@ -11,7 +11,7 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache, QNetwork
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
 
 from .native_details import NativeAircraftDetails
-from .display import DISPLAY_DEFAULT, destination_point, flight_level, is_emergency
+from .display import DISPLAY_DEFAULT, destination_point, flight_level, is_emergency, north_offset_deg
 
 TILE_SIZE = 256
 MAX_LATITUDE = 85.05112878
@@ -245,20 +245,24 @@ class _MapCanvas(QWidget):
         painter.setClipping(False)
         painter.setPen(QColor('#163645'))
         if not self.rows:
-            self._banner(painter, 'Waiting for aircraft with a position. Aircraft without coordinates remain in the table.', 12)
+            self._banner(painter, 'Waiting for aircraft with a position. Aircraft without coordinates remain in the list.', 46)
         if self._tile_problem:
             self._banner(painter, 'Map tiles unavailable. Aircraft positions and range radar still update.', self.height() - 42)
         self._draw_scale(painter)
+        self._draw_compass(painter)
         painter.end()
         self._pump_tiles()
 
     def _draw_range_rings(self, painter):
-        """Station-centred range rings; distances are great-circle NM/km from the antenna."""
+        """Dotted 50-unit range rings around the antenna, replacing the old radar box."""
         metric = self.display.get('units') == 'metric'
-        steps = (25, 50, 100, 150, 200, 250, 300) if not metric else (50, 100, 200, 300, 400, 500)
+        steps = range(50, 501, 50) if metric else range(50, 301, 50)
         origin = self._screen(*self.station)
+        offset = north_offset_deg(self.display)
         painter.save()
-        painter.setFont(QFont('Segoe UI', 8))
+        ring_font = QFont('Segoe UI', 8)
+        painter.setFont(ring_font)
+        drawn = []
         for step in steps:
             distance_nm = step / 1.852 if metric else float(step)
             points = []
@@ -268,13 +272,61 @@ class _MapCanvas(QWidget):
             radius = max(abs(points[0].y() - origin.y()), abs(points[15].x() - origin.x()))
             if radius < 24 or radius > max(self.width(), self.height()) * 1.6:
                 continue
-            painter.setPen(QPen(QColor(8, 119, 104, 110), 1, Qt.PenStyle.DashLine))
+            painter.setPen(QPen(QColor(8, 119, 104, 130), 1.2, Qt.PenStyle.DotLine))
             painter.setBrush(Qt.BrushStyle.NoBrush)
             painter.drawPolyline(QPolygonF(points))
             label = f'{step} km' if metric else f'{step} NM'
-            top = points[0]
+            top = points[3]
             painter.setPen(QColor('#087768'))
             painter.drawText(QRectF(top.x() + 4, top.y() - 9, 64, 16), label)
+            drawn.append(distance_nm)
+        if drawn and self.display.get('cardinals', True):
+            bold = QFont('Segoe UI', 9); bold.setBold(True)
+            painter.setFont(bold)
+            view = QRectF(self.rect()).adjusted(-4, -4, 4, 4)
+            for label, bearing in (('N', 0), ('E', 90), ('S', 180), ('W', 270)):
+                point = None
+                for distance_nm in reversed(drawn):
+                    lat, lon = destination_point(self.station[0], self.station[1], (bearing + offset) % 360, distance_nm)
+                    candidate = self._screen(lat, lon)
+                    if view.contains(candidate):
+                        point = candidate
+                        break
+                if point is None:
+                    continue
+                painter.setPen(QPen(QColor('#087768'), 1))
+                painter.setBrush(QColor(255, 255, 255, 215))
+                painter.drawEllipse(point, 10, 10)
+                painter.setPen(QColor('#c62f3b' if label == 'N' else '#163645'))
+                painter.drawText(QRectF(point.x() - 10, point.y() - 10, 20, 20), Qt.AlignmentFlag.AlignCenter, label)
+        painter.restore()
+
+    def _draw_compass(self, painter):
+        """Compass rose whose N follows the chosen true/magnetic reference."""
+        if not self.display.get('cardinals', True):
+            return
+        offset = north_offset_deg(self.display)
+        centre = QPointF(self.width() - 78, 46)
+        radius = 30
+        painter.save()
+        painter.setPen(QPen(QColor(22, 54, 69, 190), 1))
+        painter.setBrush(QColor(255, 255, 255, 215))
+        painter.drawEllipse(centre, radius, radius)
+        bold = QFont('Segoe UI', 8); bold.setBold(True)
+        painter.setFont(bold)
+        for label, bearing in (('N', 0), ('E', 90), ('S', 180), ('W', 270)):
+            angle = math.radians(bearing + offset - 90)
+            point = centre + QPointF(math.cos(angle) * (radius - 9), math.sin(angle) * (radius - 9))
+            painter.setPen(QColor('#c62f3b' if label == 'N' else '#163645'))
+            painter.drawText(QRectF(point.x() - 7, point.y() - 7, 14, 14), Qt.AlignmentFlag.AlignCenter, label)
+        needle = math.radians(offset - 90)
+        tip = centre + QPointF(math.cos(needle) * (radius - 16), math.sin(needle) * (radius - 16))
+        painter.setPen(QPen(QColor('#c62f3b'), 2))
+        painter.drawLine(centre, tip)
+        painter.setFont(QFont('Segoe UI', 7))
+        painter.setPen(QColor('#163645'))
+        painter.drawText(QRectF(centre.x() - radius, centre.y() + radius + 1, radius * 2, 12),
+                         Qt.AlignmentFlag.AlignCenter, 'MAG' if self.display.get('north_reference') == 'magnetic' else 'TRUE')
         painter.restore()
 
     def _banner(self, painter, text, y):
@@ -291,14 +343,21 @@ class _MapCanvas(QWidget):
         magnitude = 10 ** math.floor(math.log10(desired))
         distance = next((n * magnitude for n in (5, 2, 1) if n * magnitude <= desired), magnitude / 2)
         width = distance / metres_per_pixel
-        y = self.height() - 13
+        y = self.height() - 48
+        x = self.width() - width - 22
         label = f'{distance / 1000:g} km' if distance >= 1000 else f'{distance:g} m'
-        painter.fillRect(QRectF(9, y - 24, max(90, width + 12), 30), QColor(255, 255, 255, 220))
+        painter.fillRect(QRectF(x - 6, y - 24, max(90, width + 12), 30), QColor(255, 255, 255, 220))
         painter.setPen(QPen(QColor('#203f4b'), 2))
-        painter.drawLine(QPointF(15, y), QPointF(15 + width, y))
-        painter.drawLine(QPointF(15, y - 5), QPointF(15, y))
-        painter.drawLine(QPointF(15 + width, y - 5), QPointF(15 + width, y))
-        painter.drawText(QRectF(15, y - 23, width + 10, 18), label)
+        painter.drawLine(QPointF(x, y), QPointF(x + width, y))
+        painter.drawLine(QPointF(x, y - 5), QPointF(x, y))
+        painter.drawLine(QPointF(x + width, y - 5), QPointF(x + width, y))
+        painter.drawText(QRectF(x, y - 23, width + 10, 18), label)
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        parent = self.parent()
+        if parent is not None and hasattr(parent, '_position_overlays'):
+            parent._position_overlays()
 
     def mousePressEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton:
@@ -382,34 +441,36 @@ class NativeMap(QWidget):
         super().__init__(parent)
         self._centered = False
         self._station = None
+        self._overlays = []          # (widget, anchor) registered by the window
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
-        toolbar = QHBoxLayout()
-        self.summary = QLabel('Local airspace · waiting for aircraft positions')
-        self.summary.setWordWrap(True)
-        toolbar.addWidget(self.summary, 1)
-        self.zoom_out = QPushButton('−')
-        self.zoom_in = QPushButton('+')
-        for button, label in ((self.zoom_out, 'Zoom out'), (self.zoom_in, 'Zoom in')):
-            button.setAccessibleName(label)
-            button.setToolTip(label)
-            button.setFixedWidth(34)
-            toolbar.addWidget(button)
-        self.home_button = QPushButton('Antenna')
-        self.fit_button = QPushButton('Fit aircraft')
-        toolbar.addWidget(self.home_button)
-        toolbar.addWidget(self.fit_button)
-        layout.addLayout(toolbar)
+        layout.setSpacing(0)
         self.canvas = _MapCanvas(self, cache_dir)
         layout.addWidget(self.canvas, 1)
-        footer = QHBoxLayout()
-        hint = QLabel('Drag to pan · double-click or wheel to zoom · select an aircraft')
-        hint.setWordWrap(True)
-        footer.addWidget(hint, 1)
-        attribution = QLabel('© <a style="color: #9fd1ff" href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>')
-        attribution.setOpenExternalLinks(True)
-        footer.addWidget(attribution)
-        layout.addLayout(footer)
+        # Overlays drawn over the map, Flightradar24-style: the map keeps the space.
+        self.summary = QLabel('Local airspace · waiting for aircraft positions', self.canvas)
+        self.summary.setObjectName('mapChip')
+        self.summary.setWordWrap(False)
+        self.summary.setToolTip('Drag to pan · double-click or wheel to zoom · select an aircraft for details')
+        controls = QWidget(self.canvas)
+        controls.setObjectName('mapControls')
+        column = QVBoxLayout(controls)
+        column.setContentsMargins(0, 0, 0, 0)
+        column.setSpacing(4)
+        self.zoom_in = QPushButton('+')
+        self.zoom_out = QPushButton('−')
+        self.home_button = QPushButton('◎')
+        self.fit_button = QPushButton('⛶')
+        for button, label in ((self.zoom_in, 'Zoom in'), (self.zoom_out, 'Zoom out'),
+                              (self.home_button, 'Centre on antenna'), (self.fit_button, 'Fit aircraft')):
+            button.setAccessibleName(label)
+            button.setToolTip(label)
+            button.setFixedSize(38, 38)
+            column.addWidget(button)
+        self._controls = controls
+        self.attribution = QLabel('© <a style="color: #9fd1ff" href="https://www.openstreetmap.org/copyright">OpenStreetMap contributors</a>', self.canvas)
+        self.attribution.setObjectName('mapChip')
+        self.attribution.setOpenExternalLinks(True)
         self.zoom_out.clicked.connect(lambda: self.canvas.zoom_at(-1))
         self.zoom_in.clicked.connect(lambda: self.canvas.zoom_at(1))
         self.home_button.clicked.connect(self.center_home)
@@ -417,6 +478,61 @@ class NativeMap(QWidget):
         self.canvas.aircraftSelected.connect(self.aircraftSelected.emit)
         self.home_button.setEnabled(False)
         self.fit_button.setEnabled(False)
+        for widget in (self.summary, self._controls, self.attribution):
+            widget.show(); widget.raise_()
+
+    def add_overlay(self, widget, anchor='left'):
+        """Attach a window-owned panel over the map ('left' list or 'bottom' status strip)."""
+        widget.setParent(self.canvas)
+        self._overlays.append((widget, anchor))
+        widget.show(); widget.raise_()
+        self._position_overlays()
+
+    def refresh_overlays(self):
+        self._position_overlays()
+
+    def _position_overlays(self):
+        width, height = self.canvas.width(), self.canvas.height()
+        if width <= 0 or height <= 0:
+            return
+        self.summary.move(10, 10)
+        self.summary.setFixedWidth(max(180, min(560, width - 190)))
+        self.summary.setFixedHeight(28)
+        self._controls.adjustSize()
+        self._controls.move(width - self._controls.width() - 10, max(92, height // 2 - self._controls.height() // 2))
+        self.attribution.adjustSize()
+        self.attribution.move(width - self.attribution.width() - 8, height - self.attribution.height() - 6)
+        bottom_height = 0
+        for widget, anchor in self._overlays:
+            if anchor == 'bottom' and not widget.isHidden():
+                widget.setFixedWidth(max(200, width - 20 - self.attribution.width()))
+                widget.adjustSize()
+                bottom_height = widget.height()
+                widget.move(10, height - bottom_height - 8)
+        list_height = 0
+        for widget, anchor in self._overlays:
+            if anchor == 'bottom-left':
+                wanted = getattr(widget, '_overlay_height', 300)
+                actual = max(40, min(wanted, max(40, height - bottom_height - 70)))
+                widget.setFixedHeight(actual)
+                if not widget.isHidden():
+                    list_height = actual
+                widget.move(10, height - bottom_height - actual - 16)
+        for widget, anchor in self._overlays:
+            if anchor == 'details-left':
+                available = height - 48 - bottom_height - (list_height + 8 if list_height else 0) - 22
+                widget.setFixedHeight(max(180, available))
+                widget.move(10, 48)
+            elif anchor == 'left':
+                widget.move(10, 48)
+                widget.setFixedHeight(max(160, height - 48 - bottom_height - 22))
+        self.summary.raise_(); self._controls.raise_(); self.attribution.raise_()
+        for widget, _anchor in self._overlays:
+            widget.raise_()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._position_overlays()
 
     def update_aircraft(self, rows, config, selected=''):
         rows = list(rows or [])

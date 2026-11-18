@@ -10,7 +10,7 @@ sys.path[:0] = [str(ROOT / 'src'), str(ROOT / 'work/desktoplibs'), str(ROOT / 'w
 os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
 
 from frw.config import ConfigError
-from frw.display import (bearing_deg, destination_point, distance_bearing, emergency_text,
+from frw.display import (bearing_deg, bearing_suffix, destination_point, display_bearing, distance_bearing, emergency_text,
     flight_level, format_altitude, format_distance, format_seen, format_speed,
     format_track, format_vertical_rate, is_emergency, quick_match, sort_rows,
     trend_arrow, validate_display)
@@ -66,6 +66,19 @@ class DisplayFormattingTests(unittest.TestCase):
         lat, lon = destination_point(0, 0, 0, 60.04)
         self.assertAlmostEqual(lat, 1.0, delta=0.01)
         self.assertAlmostEqual(lon, 0.0, delta=0.01)
+
+    def test_north_reference_and_magnetic_variation(self):
+        magnetic = validate_display({'north_reference': 'magnetic', 'magnetic_variation': 8})
+        self.assertEqual(display_bearing(90, magnetic), 82)
+        self.assertEqual(display_bearing(5, magnetic), 357)
+        self.assertEqual(bearing_suffix(magnetic), '°M')
+        self.assertEqual(display_bearing(90, validate_display({})), 90)
+        self.assertEqual(bearing_suffix(validate_display({})), '°T')
+        self.assertIsNone(display_bearing(None, magnetic))
+        with self.assertRaises(ConfigError):
+            validate_display({'north_reference': 'grid'})
+        with self.assertRaises(ConfigError):
+            validate_display({'magnetic_variation': 45})
 
     def test_emergency_detection(self):
         self.assertTrue(is_emergency({'squawk': '7700'}))
@@ -175,6 +188,36 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual([r['icao'] for r in self.window.visible_rows()], ['7C0002', '7C0001', '7C0003'])
         self.window._sort_by_column(2)  # toggle descending
         self.assertEqual([r['icao'] for r in self.window.visible_rows()], ['7C0001', '7C0002', '7C0003'])
+
+    def test_map_first_layout_and_list_overlay(self):
+        # The range-radar box is gone; the aircraft list floats along the bottom
+        # of the map and collapses to a chip; details pop up floating at left.
+        self.assertFalse(hasattr(self.window, 'radar'))
+        self.assertFalse(hasattr(self.window, 'details_dock'))
+        self.assertIs(self.window.list_panel.parent(), self.window.map.canvas)
+        self.assertIs(self.window.status_panel.parent(), self.window.map.canvas)
+        self.assertIs(self.window.details_panel.parent(), self.window.map.canvas)
+        anchors = {id(widget): anchor for widget, anchor in self.window.map._overlays}
+        self.assertEqual(anchors[id(self.window.list_panel)], 'bottom-left')
+        self.assertEqual(anchors[id(self.window.details_panel)], 'details-left')
+        self.assertIs(self.window.table.parent(), self.window._list_body)
+        wide = self.window.list_panel.width()
+        self.window._set_list_collapsed(True)
+        self.assertLess(self.window.list_panel.width(), wide)
+        self.window._set_list_collapsed(False)
+        self.assertTrue(self.window.details_panel.isHidden())
+        self.window.select_aircraft('7C0001')
+        self.assertFalse(self.window.details_panel.isHidden())
+        self.window.clear_selection()
+        self.assertTrue(self.window.details_panel.isHidden())
+        headers = [self.window.table.horizontalHeaderItem(i).text() for i in range(11)]
+        self.assertIn('°T', headers[8])
+        self.window.features = validate_features({'display': {'north_reference': 'magnetic', 'magnetic_variation': 10}})
+        self.window._update_table_headers()
+        self.window._update_table()
+        headers = [self.window.table.horizontalHeaderItem(i).text() for i in range(11)]
+        self.assertIn('°M', headers[8])
+        self.assertEqual(self.window.table.item(0, 8).text(), '080°')  # 090 true - 10 variation
 
     def test_metric_units_change_headers_and_values(self):
         self.window.features = validate_features({'display': {'units': 'metric'}})

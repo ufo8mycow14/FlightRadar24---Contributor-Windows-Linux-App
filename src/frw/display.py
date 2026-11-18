@@ -14,7 +14,11 @@ DISPLAY_DEFAULT = {
     'map_labels': 'callsign',     # 'callsign', 'detailed' or 'none'
     'range_rings': True,          # station-centred range rings on the map
     'follow_selected': False,     # keep the selected aircraft centred on the map
+    'cardinals': True,            # N/E/S/W compass and range-ring cardinal labels
+    'north_reference': 'true',    # 'true' or 'magnetic' for bearings/compass
+    'magnetic_variation': 0.0,    # degrees, east positive, user-entered from a chart
 }
+NORTH_REFERENCES = ('true', 'magnetic')
 UNITS = ('aviation', 'metric')
 MAP_LABELS = ('callsign', 'detailed', 'none')
 EMERGENCY_SQUAWKS = {
@@ -38,9 +42,15 @@ def validate_display(value):
         raise ConfigError('Choose aviation or metric display units.')
     if c['map_labels'] not in MAP_LABELS:
         raise ConfigError('Choose a map label style.')
-    for key in ('range_rings', 'follow_selected'):
+    for key in ('range_rings', 'follow_selected', 'cardinals'):
         if type(c[key]) is not bool:
             raise ConfigError(key + ' must be true or false.')
+    if c['north_reference'] not in NORTH_REFERENCES:
+        raise ConfigError('Choose true or magnetic north for bearings and the compass.')
+    variation = c['magnetic_variation']
+    if isinstance(variation, bool) or not isinstance(variation, (int, float)) or not math.isfinite(variation) or not -30 <= variation <= 30:
+        raise ConfigError('Magnetic variation: enter degrees from -30 to 30 (east positive).')
+    c['magnetic_variation'] = float(variation)
     return c
 
 
@@ -137,6 +147,26 @@ def distance_bearing(station, row):
     if not _number(lat) or not _number(lon):
         return None
     return distance_nm(station[0], station[1], lat, lon), bearing_deg(station[0], station[1], lat, lon)
+
+
+def north_offset_deg(display):
+    """True bearing at which the chosen reference north lies (0 for true north)."""
+    display = display or {}
+    if display.get('north_reference') == 'magnetic':
+        variation = display.get('magnetic_variation', 0.0)
+        return float(variation) if _number(variation) else 0.0
+    return 0.0
+
+
+def display_bearing(true_degrees, display):
+    """Convert a true bearing to the user's chosen reference, rounded 000-359."""
+    if not _number(true_degrees):
+        return None
+    return round(true_degrees - north_offset_deg(display)) % 360
+
+
+def bearing_suffix(display):
+    return '°M' if (display or {}).get('north_reference') == 'magnetic' else '°T'
 
 
 def emergency_text(row):

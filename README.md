@@ -23,7 +23,7 @@ Direct USB support is **not implemented** for Airspy, HackRF, SDRplay, 978 MHz U
 
 ## Features
 
-- **Worldwide map and offline range radar.** Pan, double-click to zoom, centre on the antenna, fit received aircraft and select a marker for details. Optional range rings and detailed labels show distance bands, flight level and speed at a glance. Map tiles use OpenStreetMap with visible attribution.
+- **Map-first airspace view.** The worldwide map fills the home screen; the aircraft list, Find and filters float in a box along the bottom, clicking a plane pops its live details up in a floating box on the left, and zoom, antenna and fit controls sit on the map itself. Dotted 50 NM range rings, N/E/S/W cardinals and a compass (true or magnetic north, using your entered variation) replace the old separate radar box, and work without map tiles. Map tiles use OpenStreetMap with visible attribution.
 - **Airspace workspace.** Aviation or metric units with flight levels, distance/bearing from your antenna, climb/descent trend arrows, emergency-squawk highlighting, Find (Ctrl+F), a sortable aircraft table, follow-selected map centring and a remembered window layout. Display choices never change reception, uploading or recorded history.
 - **Live aircraft details.** Callsign, ICAO24 address, squawk, position, altitude, ground speed, track, vertical rate, source and measurement ages. Expanded groups show additional broadcast fields when available.
 - **Flexible display filters.** Callsigns/prefixes, exact ICAO24 addresses, squawks, altitude, speed, distance, emitter category, source, ground/airborne state, position and emergencies. Save named presets.

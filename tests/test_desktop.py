@@ -237,7 +237,7 @@ class DesktopIntegrationTests(unittest.TestCase):
         release.set()
         self.wait_for(lambda: self.window.details.snapshot.get('icao') == 'A00002')
         self.assertEqual(self.window.details.callsign.text(), 'SECOND')
-        self.window.details_dock.hide()
+        self.window.clear_selection()
         self.app.processEvents()
         self.assertEqual(self.window.selected, '')
         self.assertEqual(self.window.details.snapshot, {})

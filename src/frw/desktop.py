@@ -6,15 +6,16 @@ import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QObject, Signal, QSettings
-from PySide6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor, QFont, QBrush, QShortcut, QKeySequence
+from PySide6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor, QFont, QBrush, QShortcut, QKeySequence, QPolygonF
+from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QLabel, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QLineEdit,
+    QHBoxLayout, QLabel, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QLineEdit, QFrame,
     QAbstractItemView, QHeaderView, QDockWidget, QTabWidget, QFileDialog, QToolBar, QComboBox, QDialog, QSystemTrayIcon)
 from .control import Controller
-from .native_map import NativeMap, RangeRadar, NativeAircraftDetails
+from .native_map import NativeMap, NativeAircraftDetails
 from .native_pages import NativePages
 from .features import FEATURE_DEFAULT, matches
-from .display import (DISPLAY_DEFAULT, distance_bearing, emergency_text, format_altitude,
+from .display import (DISPLAY_DEFAULT, bearing_suffix, display_bearing, distance_bearing, emergency_text, format_altitude,
     format_distance, format_seen, format_speed, format_track, format_vertical_rate,
     is_emergency, quick_match, sort_rows)
 from .native_features import FeatureModel, FilterDialog, StatisticsPage, AlertsPage, FeaturePreferences, describe
@@ -64,6 +65,21 @@ class Dispatcher(QObject):
         self.mutations.shutdown(wait=False, cancel_futures=True)
 
 
+def _control_icon(kind):
+    pixmap = QPixmap(18, 18)
+    pixmap.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pixmap)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    if kind == 'start':
+        painter.setBrush(QColor('#2ee6a8')); painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawPolygon(QPolygonF([QPointF(4, 2), QPointF(16, 9), QPointF(4, 16)]))
+    else:
+        painter.setBrush(QColor('#ff7a6e')); painter.setPen(Qt.PenStyle.NoPen)
+        painter.drawRoundedRect(3, 3, 12, 12, 2, 2)
+    painter.end()
+    return QIcon(pixmap)
+
+
 class FlightRadarWindow(QMainWindow):
     def __init__(self, receiver, instance=None):
         super().__init__()
@@ -108,79 +124,94 @@ class FlightRadarWindow(QMainWindow):
             QTimer.singleShot(100, lambda: self.operation('start'))
 
     def _build(self):
-        bar = QToolBar('Receiver controls', self)
-        bar.setMovable(False)
-        self.addToolBar(bar)
-        self.start_button, self.stop_button = QPushButton('Start receiver'), QPushButton('Stop receiver')
-        self.start_button.setObjectName('primaryButton')
-        self.start_button.clicked.connect(lambda: self.operation('start'))
-        self.stop_button.clicked.connect(lambda: self.operation('stop'))
-        bar.addWidget(self.start_button)
-        bar.addWidget(self.stop_button)
-        bar.addSeparator()
-        self.health = QLabel('  Connecting to receiver…')
-        self.health.setTextFormat(Qt.TextFormat.PlainText)
-        bar.addWidget(self.health)
         self.tabs = QTabWidget()
         self.setCentralWidget(self.tabs)
+        # One top line: receiver start/stop (icon + name), health, then the page tabs.
+        corner = QWidget()
+        corner_row = QHBoxLayout(corner)
+        corner_row.setContentsMargins(6, 2, 6, 2)
+        corner_row.setSpacing(6)
+        self.start_button = QPushButton(_control_icon('start'), 'Start receiver')
+        self.start_button.setObjectName('primaryButton')
+        self.stop_button = QPushButton(_control_icon('stop'), 'Stop receiver')
+        self.start_button.clicked.connect(lambda: self.operation('start'))
+        self.stop_button.clicked.connect(lambda: self.operation('stop'))
+        corner_row.addWidget(self.start_button)
+        corner_row.addWidget(self.stop_button)
+        self.tabs.setCornerWidget(corner, Qt.Corner.TopLeftCorner)
+        # Receiver status sits at the far right of the top bar, before the
+        # window minimise/maximise/close buttons in the title bar above it.
+        status_corner = QWidget()
+        status_row = QHBoxLayout(status_corner)
+        status_row.setContentsMargins(6, 2, 10, 2)
+        self.health = QLabel('Waiting for receiver status…')
+        self.health.setTextFormat(Qt.TextFormat.PlainText)
+        self.health.setObjectName('receiverStatus')
+        self.health.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        status_row.addWidget(self.health)
+        self.tabs.setCornerWidget(status_corner, Qt.Corner.TopRightCorner)
+        # Airspace: the map fills the page; everything else overlays it.
         dashboard = QWidget()
         layout = QVBoxLayout(dashboard)
-        layout.setContentsMargins(8, 8, 8, 8)
-        self.metrics = QLabel('Waiting for receiver status…')
-        self.metrics.setObjectName('metrics')
-        self.metrics.setWordWrap(True)
-        layout.addWidget(self.metrics)
-        self.feed_status = QLabel('Flightradar24 upload: stopped')
-        self.feed_status.setTextFormat(Qt.TextFormat.PlainText)
-        self.feed_status.setWordWrap(True)
-        layout.addWidget(self.feed_status)
-        self.message = QLabel('')
-        self.message.setTextFormat(Qt.TextFormat.PlainText)
-        self.message.setWordWrap(True)
-        self.message.hide()
-        layout.addWidget(self.message)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(0)
+        self.map = NativeMap(cache_dir=self.receiver.directory / 'map-cache')
+        self.map.aircraftSelected.connect(self.select_aircraft)
+        layout.addWidget(self.map, 1)
+        # Left overlay: find, filters and the aircraft list (collapsible).
+        self.list_panel = QFrame()
+        self.list_panel.setObjectName('overlayPanel')
+        self.list_panel.setFixedWidth(580)
+        self.list_panel._overlay_height = 300
+        panel_layout = QVBoxLayout(self.list_panel)
+        panel_layout.setContentsMargins(8, 6, 8, 8)
+        panel_layout.setSpacing(6)
+        header = QHBoxLayout()
+        title = QLabel('Aircraft')
+        title.setObjectName('panelTitle')
+        header.addWidget(title)
+        header.addStretch(1)
+        self._collapse_button = QPushButton('‹')
+        self._collapse_button.setAccessibleName('Collapse aircraft list')
+        self._collapse_button.setToolTip('Collapse the aircraft list to give the map more room')
+        self._collapse_button.setFixedWidth(30)
+        self._collapse_button.clicked.connect(self._toggle_list_panel)
+        header.addWidget(self._collapse_button)
+        panel_layout.addLayout(header)
+        self._list_body = QWidget()
+        body = QVBoxLayout(self._list_body)
+        body.setContentsMargins(0, 0, 0, 0)
+        body.setSpacing(6)
         find_row = QHBoxLayout()
         self.search_box = QLineEdit()
         self.search_box.setPlaceholderText('Find callsign or ICAO…  (Ctrl+F)')
         self.search_box.setAccessibleName('Find aircraft by callsign or ICAO address')
         self.search_box.setClearButtonEnabled(True)
-        self.search_box.setMinimumWidth(280)
-        self.search_box.setMaximumWidth(420)
         self.search_box.textChanged.connect(self._search_changed)
         find_row.addWidget(QLabel('Find:'))
-        find_row.addWidget(self.search_box)
-        find_row.addStretch(1)
-        layout.addLayout(find_row)
+        find_row.addWidget(self.search_box, 1)
+        body.addLayout(find_row)
         find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
-        find_shortcut.activated.connect(lambda: (self.tabs.setCurrentIndex(0), self.search_box.setFocus(), self.search_box.selectAll()))
+        find_shortcut.activated.connect(lambda: (self.tabs.setCurrentIndex(0), self._set_list_collapsed(False), self.search_box.setFocus(), self.search_box.selectAll()))
         if self.feature_model:
-            filters=QHBoxLayout()
-            filters.addWidget(self._feature_button('Filters…',self.edit_filters))
-            self.preset_combo=QComboBox()
+            filters = QHBoxLayout()
+            filters.addWidget(self._feature_button('Filters…', self.edit_filters))
+            self.preset_combo = QComboBox()
             self.preset_combo.setAccessibleName('Airspace filter preset')
-            self.preset_combo.setMinimumContentsLength(18)
+            self.preset_combo.setMinimumContentsLength(14)
             self.preset_combo.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
-            self.preset_combo.setMaximumWidth(240)
-            self.preset_combo.addItem('All aircraft',None)
+            self.preset_combo.addItem('All aircraft', None)
             self.preset_combo.activated.connect(self.choose_preset)
-            filters.addWidget(self.preset_combo)
-            filters.addWidget(self._feature_button('Clear filters',lambda:self.feature_model.save({'filter_enabled':False})))
-            filters.addWidget(self._feature_button('Alert for selected aircraft…',lambda:self.alerts_page.add(self.selected) if self.selected else self.notice('Select an aircraft first.',False)))
-            self.filter_status=QLabel('All received aircraft')
+            filters.addWidget(self.preset_combo, 1)
+            filters.addWidget(self._feature_button('Clear', lambda: self.feature_model.save({'filter_enabled': False})))
+            body.addLayout(filters)
+            actions = QHBoxLayout()
+            actions.addWidget(self._feature_button('Alert for selected aircraft…', lambda: self.alerts_page.add(self.selected) if self.selected else self.notice('Select an aircraft first.', False)))
+            self.filter_status = QLabel('All received aircraft')
             self.filter_status.setTextFormat(Qt.TextFormat.PlainText)
             self.filter_status.setWordWrap(True)
-            filters.addWidget(self.filter_status,1)
-            layout.addLayout(filters)
-        self.map = NativeMap(cache_dir=self.receiver.directory / 'map-cache')
-        self.map.aircraftSelected.connect(self.select_aircraft)
-        vertical = QSplitter(Qt.Orientation.Vertical)
-        self._vertical_splitter = vertical
-        vertical.addWidget(self.map)
-        lower = QSplitter(Qt.Orientation.Horizontal)
-        self._lower_splitter = lower
-        self.radar = RangeRadar()
-        self.radar.aircraftSelected.connect(self.select_aircraft)
-        lower.addWidget(self.radar)
+            actions.addWidget(self.filter_status, 1)
+            body.addLayout(actions)
         self.table = QTableWidget(0, 11)
         self._table_columns = ['callsign', 'icao', 'altitude', 'groundspeed', 'track',
                                'vertical_rate', 'squawk', 'distance', 'bearing', 'seen', 'position']
@@ -192,20 +223,38 @@ class FlightRadarWindow(QMainWindow):
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
         self.table.verticalHeader().hide()
-        header = self.table.horizontalHeader()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(True)
-        for column, width in enumerate((105, 78, 148, 88, 66, 126, 76, 108, 76, 66, 104)):
+        header_view = self.table.horizontalHeader()
+        header_view.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header_view.setStretchLastSection(True)
+        for column, width in enumerate((96, 72, 132, 80, 58, 112, 68, 96, 70, 58, 92)):
             self.table.setColumnWidth(column, width)
         self.table.itemSelectionChanged.connect(self._table_selected)
         self.table.itemDoubleClicked.connect(lambda item: self.map.focus_aircraft(self.selected))
-        lower.addWidget(self.table)
-        lower.setSizes([350, 950])
-        vertical.addWidget(lower)
-        vertical.setSizes([560, 230])
-        vertical.setStretchFactor(0, 3)
-        vertical.setStretchFactor(1, 1)
-        layout.addWidget(vertical, 1)
+        body.addWidget(self.table, 1)
+        panel_layout.addWidget(self._list_body, 1)
+        self._list_collapsed = False
+        self.map.add_overlay(self.list_panel, 'bottom-left')
+        # Bottom overlay strip: reception metrics and sharing status on one line each.
+        self.status_panel = QFrame()
+        self.status_panel.setObjectName('overlayPanel')
+        status_layout = QVBoxLayout(self.status_panel)
+        status_layout.setContentsMargins(10, 4, 10, 5)
+        status_layout.setSpacing(1)
+        status_row = QHBoxLayout()
+        self.metrics = QLabel('No aircraft received yet')
+        self.metrics.setObjectName('metrics')
+        status_row.addWidget(self.metrics)
+        status_row.addStretch(1)
+        self.feed_status = QLabel('Flightradar24 upload: stopped')
+        self.feed_status.setTextFormat(Qt.TextFormat.PlainText)
+        status_row.addWidget(self.feed_status)
+        status_layout.addLayout(status_row)
+        self.message = QLabel('')
+        self.message.setTextFormat(Qt.TextFormat.PlainText)
+        self.message.setWordWrap(True)
+        self.message.hide()
+        status_layout.addWidget(self.message)
+        self.map.add_overlay(self.status_panel, 'bottom')
         self.tabs.addTab(dashboard, 'Airspace')
         self.pages = NativePages(self.dispatcher.invoke)
         self.pages.update_settings(self.config)
@@ -221,15 +270,16 @@ class FlightRadarWindow(QMainWindow):
             self.pages.pages['features']=self.feature_preferences
             self.pages.tabs.addTab(self.feature_preferences,'Storage & alerts')
         self.details = NativeAircraftDetails()
-        self.details_dock = QDockWidget('Aircraft · live broadcast data', self)
-        self.details_dock.setAllowedAreas(Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.LeftDockWidgetArea)
-        self.details_dock.setWidget(self.details)
-        self.details_dock.setMinimumWidth(330)
-        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, self.details_dock)
-        self.details_dock.hide()
+        self.details_panel = QFrame()
+        self.details_panel.setObjectName('overlayPanel')
+        self.details_panel.setFixedWidth(392)
+        details_layout = QVBoxLayout(self.details_panel)
+        details_layout.setContentsMargins(4, 4, 4, 4)
+        details_layout.addWidget(self.details)
+        self.map.add_overlay(self.details_panel, 'details-left')
+        self.details_panel.hide()
         self._restore_ui_state()
         self.details.closed.connect(self.clear_selection)
-        self.details_dock.visibilityChanged.connect(self._details_visibility)
         menu = self.menuBar().addMenu('&File')
         for title, callback in [('Export aircraft CSV…', self.export_aircraft), ('Logs and diagnostics', lambda: self.show_page('logs')), ('Exit', self.close)]:
             action = QAction(title, self)
@@ -241,11 +291,8 @@ class FlightRadarWindow(QMainWindow):
             action.triggered.connect(lambda checked=False, page=name: self.show_page(page))
             menu.addAction(action)
         menu.addSeparator()
-        self._radar_action = QAction('Range radar', self, checkable=True, checked=True)
-        self._radar_action.triggered.connect(lambda checked: self.radar.setVisible(checked))
-        menu.addAction(self._radar_action)
-        self._table_action = QAction('Aircraft table', self, checkable=True, checked=True)
-        self._table_action.triggered.connect(lambda checked: self.table.setVisible(checked))
+        self._table_action = QAction('Aircraft list', self, checkable=True, checked=True)
+        self._table_action.triggered.connect(lambda checked: self._set_list_collapsed(not checked))
         menu.addAction(self._table_action)
         follow_action = QAction('Follow selected aircraft on map', self)
         follow_action.triggered.connect(lambda: self.show_page('features'))
@@ -281,6 +328,20 @@ class FlightRadarWindow(QMainWindow):
         result.clicked.connect(lambda checked=False:callback())
         return result
 
+    def _set_list_collapsed(self, collapsed):
+        self._list_collapsed = bool(collapsed)
+        self._list_body.setVisible(not collapsed)
+        self.list_panel.setFixedWidth(176 if collapsed else 580)
+        self.list_panel._overlay_height = 42 if collapsed else 300
+        self._collapse_button.setText('›' if collapsed else '‹')
+        self._collapse_button.setAccessibleName('Expand aircraft list' if collapsed else 'Collapse aircraft list')
+        if hasattr(self, '_table_action'):
+            self._table_action.setChecked(not collapsed)
+        self.map.refresh_overlays()
+
+    def _toggle_list_panel(self):
+        self._set_list_collapsed(not self._list_collapsed)
+
     def _display(self):
         return {**DISPLAY_DEFAULT, **(self.features.get('display') or {})}
 
@@ -311,7 +372,7 @@ class FlightRadarWindow(QMainWindow):
             'Callsign', 'ICAO', 'Altitude (m)' if metric else 'Altitude (ft · FL)',
             'Speed (km/h)' if metric else 'Speed (kt)', 'Track',
             'V/S (m/s)' if metric else 'V/S (ft/min)', 'Squawk',
-            'Distance (km)' if metric else 'Distance (NM)', 'Bearing', 'Seen', 'Position'])
+            'Distance (km)' if metric else 'Distance (NM)', 'Bearing ' + bearing_suffix(self._display()), 'Seen', 'Position'])
 
     def _restore_ui_state(self):
         try:
@@ -321,11 +382,8 @@ class FlightRadarWindow(QMainWindow):
             state = self._ui_settings.value('window/state')
             if state:
                 self.restoreState(state)
-            for key, splitter in (('splitter/vertical', self._vertical_splitter),
-                                  ('splitter/lower', self._lower_splitter)):
-                saved = self._ui_settings.value(key)
-                if saved:
-                    splitter.restoreState(saved)
+            if str(self._ui_settings.value('airspace/listCollapsed', 'false')).lower() == 'true':
+                self._set_list_collapsed(True)
         except Exception:
             pass  # a corrupt UI preference must never block startup
 
@@ -333,8 +391,7 @@ class FlightRadarWindow(QMainWindow):
         try:
             self._ui_settings.setValue('window/geometry', self.saveGeometry())
             self._ui_settings.setValue('window/state', self.saveState())
-            self._ui_settings.setValue('splitter/vertical', self._vertical_splitter.saveState())
-            self._ui_settings.setValue('splitter/lower', self._lower_splitter.saveState())
+            self._ui_settings.setValue('airspace/listCollapsed', bool(self._list_collapsed))
             self._ui_settings.sync()
         except Exception:
             pass
@@ -432,6 +489,8 @@ class FlightRadarWindow(QMainWindow):
         self.message.setText(str(text))
         self.message.setStyleSheet('color: #ffb2a8;' if error else 'color: #96d8b3;')
         self.message.setVisible(bool(text))
+        if hasattr(self, 'map'):
+            self.map.refresh_overlays()
 
     def _status_notice(self, text):
         self.notice(text, True)
@@ -443,6 +502,8 @@ class FlightRadarWindow(QMainWindow):
             self.message.clear()
             if self.statusBar().currentMessage() == self._poll_notice:
                 self.statusBar().clearMessage()
+            if hasattr(self, 'map'):
+                self.map.refresh_overlays()
         self._poll_notice = None
 
     def _settings_changed(self, config):
@@ -474,7 +535,7 @@ class FlightRadarWindow(QMainWindow):
                 return
             if error:
                 self._status_notice('Receiver status unavailable: ' + str(error))
-                self.health.setText('  Receiver status unavailable')
+                self.health.setText('Receiver status unavailable')
                 self.details.set_error(str(error))
                 return
             self._clear_status_notice()
@@ -482,7 +543,7 @@ class FlightRadarWindow(QMainWindow):
             self.rows = status.get('aircraft', [])
             state = status.get('state', 'stopped')
             playback = status.get('input', self.config.get('receiver')) == 'iq-file'
-            self.health.setText('  Receiver: ' + state + (' · Recorded playback' if playback else ''))
+            self.health.setText('Receiver: ' + state + (' · Recorded playback' if playback else ''))
             running = state in ('starting', 'receiving', 'reconnecting')
             self.start_button.setEnabled(not running and not self._action_pending)
             self.stop_button.setEnabled(running and not self._action_pending)
@@ -523,7 +584,6 @@ class FlightRadarWindow(QMainWindow):
         self.map.update_aircraft(rows, self.config, self.selected)
         if self._display()['follow_selected'] and self.selected:
             self.map.focus_aircraft(self.selected)
-        self.radar.update_aircraft(rows, self.config, self.selected)
         if self.feature_model:
             self.filter_status.setText(f'{len(rows)} / {len(self.rows)} aircraft shown'+(' · '+describe(self.features['filter']) if self.features['filter_enabled'] else ' · All aircraft')+(' · Find: '+self._search_text.strip() if self._search_text.strip() else ''))
 
@@ -556,7 +616,7 @@ class FlightRadarWindow(QMainWindow):
                 format_vertical_rate(row.get('vertical_rate'), units),
                 str(row.get('squawk') or '—'),
                 format_distance(result[0], units) if result else '—',
-                f'{result[1]:03d}°' if result else '—',
+                f'{display_bearing(result[1], display):03d}°' if result else '—',
                 format_seen(row.get('seen')),
                 position,
             ]
@@ -577,7 +637,7 @@ class FlightRadarWindow(QMainWindow):
                     item.setToolTip('')
             if result:
                 self.table.item(index, 7).setToolTip('Great-circle distance from your antenna position.')
-                self.table.item(index, 8).setToolTip('Initial bearing from your antenna position.')
+                self.table.item(index, 8).setToolTip('Initial bearing from your antenna, in your chosen north reference (Display & units).')
             if row['icao'] == self.selected:
                 selected_row = index
         if selected_row is not None:
@@ -597,10 +657,8 @@ class FlightRadarWindow(QMainWindow):
         if icao != self.selected:
             self.details.clear()
         self.selected = icao
-        self.details_dock.show()
-        if not self._details_width_set:
-            self.resizeDocks([self.details_dock], [400], Qt.Orientation.Horizontal)
-            self._details_width_set = True
+        self.details_panel.show()
+        self.map.refresh_overlays()
         self._update_positions()
         self._update_table()
         self._poll_detail()
@@ -626,17 +684,11 @@ class FlightRadarWindow(QMainWindow):
                 self.details.set_detail(detail, self.config.get('receiver', 'usb'))
         self.dispatcher.invoke('/api/aircraft/' + selected, None, done)
 
-    def _details_visibility(self, visible):
-        if not visible and not self._closing:
-            self.selected = ''
-            self.details.clear()
-            self._update_positions()
-            self._update_table()
-
     def clear_selection(self):
         self.selected = ''
         self.details.clear()
-        self.details_dock.hide()
+        self.details_panel.hide()
+        self.map.refresh_overlays()
         self._update_positions()
         self._update_table()
 
@@ -722,7 +774,16 @@ def apply_desktop_style(app):
         QTableWidget, QListWidget { background: #0d1826; alternate-background-color: #142636; gridline-color: #24384c; selection-background-color: #285775; selection-color: #ffffff; border-radius: 6px; }
         QGroupBox { border: 1px solid #3b5367; border-radius: 8px; margin-top: 14px; padding-top: 12px; font-weight: 600; }
         QGroupBox::title { subcontrol-origin: margin; left: 10px; } QLabel#helpText { color: #a8b9cb; }
-        QLabel#metrics { font-size: 13pt; font-weight: 600; padding: 8px 10px; background: #162635; border: 1px solid #30485d; border-radius: 8px; }
+        QLabel#metrics { font-size: 11pt; font-weight: 600; padding: 1px 2px; background: transparent; }
+        QFrame#overlayPanel { background: rgba(13, 24, 38, 232); border: 1px solid #45647a; border-radius: 10px; }
+        QFrame#overlayPanel QWidget { background: transparent; }
+        QFrame#overlayPanel QTableWidget { background: rgba(13, 24, 38, 235); }
+        QFrame#overlayPanel QLineEdit, QFrame#overlayPanel QComboBox { background: #0b141f; }
+        QLabel#panelTitle { font-size: 11pt; font-weight: 700; background: transparent; }
+        QLabel#receiverStatus { font-weight: 600; color: #bfe3d8; padding: 3px 4px; }
+        QLabel#mapChip { background: rgba(13, 24, 38, 215); color: #e8edf4; border: 1px solid #45647a; border-radius: 8px; padding: 4px 10px; font-weight: 600; }
+        QWidget#mapControls { background: transparent; }
+        QWidget#mapControls QPushButton { background: rgba(22, 38, 53, 235); font-size: 14pt; border-radius: 8px; padding: 0px; }
         QSplitter::handle { background: #30485d; } QSplitter::handle:horizontal { width: 5px; } QSplitter::handle:vertical { height: 5px; }
         QDockWidget::title { padding: 8px; background: #21394f; }
         QScrollBar:vertical, QScrollBar:horizontal { background: #0b141f; border: none; width: 12px; height: 12px; }

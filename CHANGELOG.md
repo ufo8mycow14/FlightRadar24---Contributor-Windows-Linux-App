@@ -1,5 +1,12 @@
 # Changes
 
+## 0.6.0
+
+- Rebuilt the home screen around the map: it now fills the Airspace page, with the aircraft list, Find and filters overlaid on the left (collapsible), live details on the right, zoom/antenna/fit controls overlaid on the map, and reception and sharing status on a single strip along the bottom.
+- Start/Stop receiver (with icons), receiver health and the page tabs now share one top line beneath the menu bar.
+- Removed the separate range-radar box. Its job is done on the map itself: dotted range rings every 50 NM (or 50 km), distance labels, and N/E/S/W cardinal markers, plus a compass rose.
+- Added a north-reference choice: bearings, cardinals and the compass can read in true north or magnetic north using the variation you enter for your location (°T/°M shown in the table). The background map remains true-north up.
+
 ## 0.5.0
 
 - Modernised the Airspace workspace: aviation/metric display units with flight levels, distance and bearing from your antenna, climb/descent trend arrows, on-ground state, and red emergency-squawk highlighting in the table and on the map.

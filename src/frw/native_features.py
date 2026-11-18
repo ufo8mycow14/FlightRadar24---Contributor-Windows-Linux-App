@@ -12,7 +12,7 @@ from PySide6.QtCore import QObject, Qt, QTimer, Signal
 from PySide6.QtGui import QColor, QPainter, QPen
 from PySide6.QtWidgets import (QAbstractItemView, QCheckBox, QComboBox, QDialog,
     QDialogButtonBox, QFileDialog, QFormLayout, QGridLayout, QGroupBox, QHBoxLayout,
-    QLabel, QLineEdit, QListWidget, QPushButton, QScrollArea, QSpinBox, QSplitter,
+    QLabel, QLineEdit, QListWidget, QPushButton, QScrollArea, QSpinBox, QDoubleSpinBox, QSplitter,
     QTabWidget, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget, QHeaderView, QToolTip)
 from .features import FEATURE_DEFAULT, FILTER_DEFAULT, CHANNELS, validate_filter, validate_features
 CHANNEL_NAMES={'in_app':'In-app','sound':'Sound','desktop':'Desktop','email':'Email','webhook':'Webhook / phone'}
@@ -562,7 +562,13 @@ class FeaturePreferences(QScrollArea):
         displayform.addRow('Map labels',self.display_labels)
         self.display_rings=QCheckBox('Show range rings around my antenna on the map');displayform.addRow(self.display_rings)
         self.display_follow=QCheckBox('Keep the selected aircraft centred on the map');displayform.addRow(self.display_follow)
-        displayform.addRow(label('Display choices change presentation only. Reception, uploading, filters, alerts and recorded history always use the values as broadcast. Altitude at or above 10,000 ft is also shown as an approximate flight level (FL). Metric values are converted from the broadcast feet/knots; nothing is re-measured. Distance and bearing need your antenna latitude/longitude in receiver settings.'))
+        self.display_cardinals=QCheckBox('Show compass and N/E/S/W cardinal labels');displayform.addRow(self.display_cardinals)
+        self.display_north=QComboBox()
+        for title,key in [('True north','true'),('Magnetic north (uses the variation below)','magnetic')]:self.display_north.addItem(title,key)
+        displayform.addRow('Bearing & compass reference',self.display_north)
+        self.display_variation=QDoubleSpinBox();self.display_variation.setRange(-30,30);self.display_variation.setDecimals(1);self.display_variation.setSingleStep(0.5);self.display_variation.setSuffix('° (east positive)')
+        displayform.addRow('Magnetic variation at my antenna',self.display_variation)
+        displayform.addRow(label('Display choices change presentation only. Reception, uploading, filters, alerts and recorded history always use the values as broadcast. Altitude at or above 10,000 ft is also shown as an approximate flight level (FL). Metric values are converted from the broadcast feet/knots; nothing is re-measured. Distance and bearing need your antenna latitude/longitude in receiver settings. The background map is drawn with true north up; choosing Magnetic north rotates the compass, ring cardinals and table bearings by the variation you enter from a current chart for your location — the app does not calculate variation itself. Range rings are dotted every 50 units from your antenna.'))
         layout.addWidget(displaybox)
         storage=QGroupBox('History & disk budget');form=QFormLayout(storage)
         self.history=QCheckBox('Collect structured reception statistics and sampled observations')
@@ -618,6 +624,9 @@ class FeaturePreferences(QScrollArea):
             self.display_units.setCurrentIndex(max(0,self.display_units.findData(display.get('units','aviation'))))
             self.display_labels.setCurrentIndex(max(0,self.display_labels.findData(display.get('map_labels','callsign'))))
             self.display_rings.setChecked(bool(display.get('range_rings',True)));self.display_follow.setChecked(bool(display.get('follow_selected',False)))
+            self.display_cardinals.setChecked(bool(display.get('cardinals',True)))
+            self.display_north.setCurrentIndex(max(0,self.display_north.findData(display.get('north_reference','true'))))
+            self.display_variation.setValue(float(display.get('magnetic_variation',0) or 0))
             self.email_enabled.setChecked(config['delivery']['email_enabled']);self.webhook_enabled.setChecked(config['delivery']['webhook_enabled'])
             self.tls.setCurrentIndex(self.tls.findData(config['delivery']['smtp_tls']));self.webkind.setCurrentIndex(self.webkind.findData(config['delivery']['webhook_kind']))
         fill_table(self.airport_table,config['airports'],['code','name','latitude','longitude','radius_nm'])
@@ -626,7 +635,7 @@ class FeaturePreferences(QScrollArea):
     def save(self):
         changes={key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in FEATURE_DEFAULT}
         changes['history_enabled']=self.history.isChecked()
-        changes['display']={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),'range_rings':self.display_rings.isChecked(),'follow_selected':self.display_follow.isChecked()}
+        changes['display']={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),'range_rings':self.display_rings.isChecked(),'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),'north_reference':self.display_north.currentData(),'magnetic_variation':self.display_variation.value()}
         delivery=copy.deepcopy(self.model.value['delivery'])
         delivery.update({key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in delivery})
         delivery.update(email_enabled=self.email_enabled.isChecked(),webhook_enabled=self.webhook_enabled.isChecked(),smtp_tls=self.tls.currentData(),webhook_kind=self.webkind.currentData())
