@@ -1,5 +1,11 @@
 # Changes
 
+## 0.6.1
+
+- Layout corrections from live use: reception metrics, sharing status and receiver status now run across the very top bar (right-aligned before the window buttons) instead of a bottom strip; transient notices appear as a chip over the map.
+- The aircraft list now runs the full length of the screen at the left at its established width, collapsible to a slim rail; selected-aircraft details pop up floating beside it (covering it on narrow windows).
+- OpenStreetMap attribution moved into the bottom bar at the right-hand corner, freeing the map's bottom edge.
+
 ## 0.6.0
 
 - Rebuilt the home screen around the map: it now fills the Airspace page, with the aircraft list, Find and filters overlaid on the left (collapsible), live details on the right, zoom/antenna/fit controls overlaid on the map, and reception and sharing status on a single strip along the bottom.

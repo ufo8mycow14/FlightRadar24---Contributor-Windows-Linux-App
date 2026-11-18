@@ -21,6 +21,7 @@ try:
 except ImportError:
     QT_AVAILABLE = False
 else:
+    from PySide6.QtCore import Qt
     from PySide6.QtWidgets import QApplication
     from frw.config import DEFAULT
     from frw.desktop import FlightRadarWindow
@@ -190,16 +191,23 @@ class WorkspaceTests(unittest.TestCase):
         self.assertEqual([r['icao'] for r in self.window.visible_rows()], ['7C0001', '7C0002', '7C0003'])
 
     def test_map_first_layout_and_list_overlay(self):
-        # The range-radar box is gone; the aircraft list floats along the bottom
-        # of the map and collapses to a chip; details pop up floating at left.
+        # The range-radar box is gone; reception/sharing status is in the very
+        # top bar, attribution in the bottom bar, the aircraft list runs the
+        # full length at left, and details pop up floating beside it.
         self.assertFalse(hasattr(self.window, 'radar'))
         self.assertFalse(hasattr(self.window, 'details_dock'))
+        self.assertFalse(hasattr(self.window, 'status_panel'))
         self.assertIs(self.window.list_panel.parent(), self.window.map.canvas)
-        self.assertIs(self.window.status_panel.parent(), self.window.map.canvas)
         self.assertIs(self.window.details_panel.parent(), self.window.map.canvas)
+        self.assertIs(self.window.map.attribution.parent(), self.window.statusBar())
+        self.assertIs(self.window.menuBar().cornerWidget(Qt.Corner.TopRightCorner), self.window.top_status)
+        self.assertIs(self.window.metrics.parent(), self.window.top_status)
+        self.assertIs(self.window.feed_status.parent(), self.window.top_status)
+        self.assertIs(self.window.health.parent(), self.window.top_status)
         anchors = {id(widget): anchor for widget, anchor in self.window.map._overlays}
-        self.assertEqual(anchors[id(self.window.list_panel)], 'bottom-left')
+        self.assertEqual(anchors[id(self.window.list_panel)], 'left')
         self.assertEqual(anchors[id(self.window.details_panel)], 'details-left')
+        self.assertEqual(anchors[id(self.window.message)], 'top-message')
         self.assertIs(self.window.table.parent(), self.window._list_body)
         wide = self.window.list_panel.width()
         self.window._set_list_collapsed(True)

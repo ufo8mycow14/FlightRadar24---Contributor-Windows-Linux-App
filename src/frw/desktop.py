@@ -9,7 +9,7 @@ from PySide6.QtCore import Qt, QTimer, QObject, Signal, QSettings
 from PySide6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor, QFont, QBrush, QShortcut, QKeySequence, QPolygonF
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
-    QHBoxLayout, QLabel, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QLineEdit, QFrame,
+    QHBoxLayout, QLabel, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QLineEdit, QFrame, QSizePolicy,
     QAbstractItemView, QHeaderView, QDockWidget, QTabWidget, QFileDialog, QToolBar, QComboBox, QDialog, QSystemTrayIcon)
 from .control import Controller
 from .native_map import NativeMap, NativeAircraftDetails
@@ -139,17 +139,35 @@ class FlightRadarWindow(QMainWindow):
         corner_row.addWidget(self.start_button)
         corner_row.addWidget(self.stop_button)
         self.tabs.setCornerWidget(corner, Qt.Corner.TopLeftCorner)
-        # Receiver status sits at the far right of the top bar, before the
-        # window minimise/maximise/close buttons in the title bar above it.
-        status_corner = QWidget()
-        status_row = QHBoxLayout(status_corner)
-        status_row.setContentsMargins(6, 2, 10, 2)
+        # Reception metrics, sharing status and receiver status live at the
+        # very top, in the menu/tool bar at the right — immediately before
+        # the window minimise/maximise/close buttons in the title bar above.
+        self.top_status = QWidget()
+        self.top_status.setObjectName('topStatus')
+        top_row = QHBoxLayout(self.top_status)
+        top_row.setContentsMargins(10, 1, 10, 1)
+        top_row.setSpacing(14)
+        self.metrics = QLabel('No aircraft received yet')
+        self.metrics.setObjectName('metrics')
+        self.metrics.setTextFormat(Qt.TextFormat.PlainText)
+        self.metrics.setAlignment(Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignVCenter)
+        self.metrics.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.metrics.setMinimumWidth(0)
+        top_row.addWidget(self.metrics, 3)
+        self.feed_status = QLabel('Flightradar24 upload: stopped')
+        self.feed_status.setObjectName('feedStatus')
+        self.feed_status.setTextFormat(Qt.TextFormat.PlainText)
+        self.feed_status.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
+        self.feed_status.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Preferred)
+        self.feed_status.setMinimumWidth(0)
+        top_row.addWidget(self.feed_status, 6)
         self.health = QLabel('Waiting for receiver status…')
         self.health.setTextFormat(Qt.TextFormat.PlainText)
         self.health.setObjectName('receiverStatus')
         self.health.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
-        status_row.addWidget(self.health)
-        self.tabs.setCornerWidget(status_corner, Qt.Corner.TopRightCorner)
+        self.health.setMinimumWidth(150)
+        top_row.addWidget(self.health, 0)
+        self.menuBar().setCornerWidget(self.top_status, Qt.Corner.TopRightCorner)
         # Airspace: the map fills the page; everything else overlays it.
         dashboard = QWidget()
         layout = QVBoxLayout(dashboard)
@@ -158,18 +176,17 @@ class FlightRadarWindow(QMainWindow):
         self.map = NativeMap(cache_dir=self.receiver.directory / 'map-cache')
         self.map.aircraftSelected.connect(self.select_aircraft)
         layout.addWidget(self.map, 1)
-        # Left overlay: find, filters and the aircraft list (collapsible).
+        # Full-length left overlay: find, filters and the aircraft list (collapsible).
         self.list_panel = QFrame()
         self.list_panel.setObjectName('overlayPanel')
         self.list_panel.setFixedWidth(580)
-        self.list_panel._overlay_height = 300
         panel_layout = QVBoxLayout(self.list_panel)
         panel_layout.setContentsMargins(8, 6, 8, 8)
         panel_layout.setSpacing(6)
         header = QHBoxLayout()
-        title = QLabel('Aircraft')
-        title.setObjectName('panelTitle')
-        header.addWidget(title)
+        self._list_title = QLabel('Aircraft')
+        self._list_title.setObjectName('panelTitle')
+        header.addWidget(self._list_title)
         header.addStretch(1)
         self._collapse_button = QPushButton('‹')
         self._collapse_button.setAccessibleName('Collapse aircraft list')
@@ -233,28 +250,16 @@ class FlightRadarWindow(QMainWindow):
         body.addWidget(self.table, 1)
         panel_layout.addWidget(self._list_body, 1)
         self._list_collapsed = False
-        self.map.add_overlay(self.list_panel, 'bottom-left')
-        # Bottom overlay strip: reception metrics and sharing status on one line each.
-        self.status_panel = QFrame()
-        self.status_panel.setObjectName('overlayPanel')
-        status_layout = QVBoxLayout(self.status_panel)
-        status_layout.setContentsMargins(10, 4, 10, 5)
-        status_layout.setSpacing(1)
-        status_row = QHBoxLayout()
-        self.metrics = QLabel('No aircraft received yet')
-        self.metrics.setObjectName('metrics')
-        status_row.addWidget(self.metrics)
-        status_row.addStretch(1)
-        self.feed_status = QLabel('Flightradar24 upload: stopped')
-        self.feed_status.setTextFormat(Qt.TextFormat.PlainText)
-        status_row.addWidget(self.feed_status)
-        status_layout.addLayout(status_row)
+        self.map.add_overlay(self.list_panel, 'left')
+        # Transient notices appear as a small chip over the top of the map;
+        # persistent reception/sharing status is in the top bar (above).
         self.message = QLabel('')
+        self.message.setObjectName('mapMessage')
         self.message.setTextFormat(Qt.TextFormat.PlainText)
         self.message.setWordWrap(True)
+        self.message.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.map.add_overlay(self.message, 'top-message')
         self.message.hide()
-        status_layout.addWidget(self.message)
-        self.map.add_overlay(self.status_panel, 'bottom')
         self.tabs.addTab(dashboard, 'Airspace')
         self.pages = NativePages(self.dispatcher.invoke)
         self.pages.update_settings(self.config)
@@ -298,6 +303,10 @@ class FlightRadarWindow(QMainWindow):
         follow_action.triggered.connect(lambda: self.show_page('features'))
         follow_action.setToolTip('Display preference: Receiver & settings → Storage & alerts → Display & units')
         menu.addAction(follow_action)
+        self.map.attribution.setObjectName('bottomAttribution')
+        self.statusBar().addPermanentWidget(self.map.attribution)
+        self.map.refresh_overlays()
+        self._layout_top_status()
         self.statusBar().showMessage('Native desktop · received ADS-B / Mode S data')
         support_menu = self.menuBar().addMenu('&Support')
         for title, callback, shortcut in [
@@ -328,11 +337,36 @@ class FlightRadarWindow(QMainWindow):
         result.clicked.connect(lambda checked=False:callback())
         return result
 
+    def _layout_top_status(self):
+        if not hasattr(self, 'top_status'):
+            return
+        # QMenuBar sizes its corner widget from its size hint (not a forced
+        # width), so cap each label instead and let the bar right-align us.
+        available = max(220, self.width() - 190)
+        self.top_status.setMinimumWidth(0)
+        self.top_status.setMaximumWidth(16777215)
+        show_feed = available >= 1000
+        show_metrics = available >= 560
+        self.feed_status.setVisible(show_feed)
+        self.metrics.setVisible(show_metrics)
+        self.health.setMaximumWidth(240)
+        if show_feed:
+            self.metrics.setMaximumWidth(max(120, int(available * 0.27)))
+            self.feed_status.setMaximumWidth(max(160, available - self.metrics.maximumWidth() - 270))
+        elif show_metrics:
+            self.metrics.setMaximumWidth(max(160, available - 270))
+        self.top_status.adjustSize()
+        self.menuBar().updateGeometry()
+
+    def resizeEvent(self, event):
+        super().resizeEvent(event)
+        self._layout_top_status()
+
     def _set_list_collapsed(self, collapsed):
         self._list_collapsed = bool(collapsed)
         self._list_body.setVisible(not collapsed)
-        self.list_panel.setFixedWidth(176 if collapsed else 580)
-        self.list_panel._overlay_height = 42 if collapsed else 300
+        self._list_title.setVisible(not collapsed)
+        self.list_panel.setFixedWidth(42 if collapsed else 580)
         self._collapse_button.setText('›' if collapsed else '‹')
         self._collapse_button.setAccessibleName('Expand aircraft list' if collapsed else 'Collapse aircraft list')
         if hasattr(self, '_table_action'):
@@ -552,6 +586,7 @@ class FlightRadarWindow(QMainWindow):
             ranges = [distance_bearing(station, r)[0] for r in self.rows if distance_bearing(station, r)] if station else []
             emergencies = sum(1 for r in self.rows if is_emergency(r))
             extra = (f"  ·  Max range {format_distance(max(ranges), self._display()['units'])}" if ranges else '') + (f"  ·  ⚠ {emergencies} emergency squawk" if emergencies else '')
+            self.metrics.setToolTip(f"{len(self.rows)} aircraft  ·  {positioned} with positions  ·  {status.get('messages_per_second', 0)} messages/s  ·  {status.get('messages', 0):,} messages" + extra)
             self.metrics.setText(f"{len(self.rows)} aircraft  ·  {positioned} with positions  ·  {status.get('messages_per_second', 0)} messages/s  ·  {status.get('messages', 0):,} messages" + extra)
             feeder = status.get('feeder') or {}
             monitor = feeder.get('monitor') or {}
@@ -570,6 +605,7 @@ class FlightRadarWindow(QMainWindow):
             except (TypeError, ValueError, OverflowError):
                 pass
             self.feed_status.setText(f"Flightradar24: {feeder.get('state', 'stopped')}  ·  Upload: {upload}  ·  {transmission}  ·  MLAT: {mlat}")
+            self.feed_status.setToolTip(self.feed_status.text())
             if status.get('error') or feeder.get('error'):
                 self._status_notice(status.get('error') or feeder.get('error'))
             self.pages.update_status(status)
@@ -774,7 +810,11 @@ def apply_desktop_style(app):
         QTableWidget, QListWidget { background: #0d1826; alternate-background-color: #142636; gridline-color: #24384c; selection-background-color: #285775; selection-color: #ffffff; border-radius: 6px; }
         QGroupBox { border: 1px solid #3b5367; border-radius: 8px; margin-top: 14px; padding-top: 12px; font-weight: 600; }
         QGroupBox::title { subcontrol-origin: margin; left: 10px; } QLabel#helpText { color: #a8b9cb; }
-        QLabel#metrics { font-size: 11pt; font-weight: 600; padding: 1px 2px; background: transparent; }
+        QLabel#metrics { font-size: 10pt; font-weight: 600; padding: 1px 2px; background: transparent; }
+        QWidget#topStatus { background: transparent; }
+        QLabel#feedStatus { color: #cfe0ee; padding: 1px 2px; background: transparent; }
+        QLabel#mapMessage { background: rgba(13, 24, 38, 232); border: 1px solid #45647a; border-radius: 8px; padding: 6px 12px; font-weight: 600; }
+        QLabel#bottomAttribution { background: transparent; padding: 2px 6px; }
         QFrame#overlayPanel { background: rgba(13, 24, 38, 232); border: 1px solid #45647a; border-radius: 10px; }
         QFrame#overlayPanel QWidget { background: transparent; }
         QFrame#overlayPanel QTableWidget { background: rgba(13, 24, 38, 235); }

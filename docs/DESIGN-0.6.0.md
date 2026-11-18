@@ -1,8 +1,8 @@
 # FlightRadar24 0.6.0 — map-first home screen
 
-Date: 19 November 2026. Status: implemented in source, 120 automated tests
-passing, synthetic previews rendered. Not yet packaged, installed or
-published; the running 0.5.0 receiver is untouched.
+Date: 19 November 2026. Status: delivered 19 November 2026 — packaged, installed over 0.5.0 with
+profile verification, live-checked, and the sanitised source published to
+GitHub. See HANDOFF.md and the evidence/*-0.6.0.json records.
 
 ## Request
 
