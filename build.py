@@ -39,6 +39,11 @@ run([str(ROOT/'src/launcher.py'),'--name','FlightRadar24','--onedir','--windowed
      '--exclude-module','PySide6.QtQuick','--noupx']+extra_data)
 dest=dist/'FlightRadar24'
 shutil.copytree(args.runtime_dir,dest/'runtime',dirs_exist_ok=True)
+python_license=Path(sys.executable).with_name('LICENSE.txt')
+if python_license.is_file():
+    license_target=dest/'runtime/licences/PYTHON-LICENSE.txt'
+    license_target.parent.mkdir(parents=True,exist_ok=True)
+    shutil.copyfile(python_license,license_target)
 if not (dest/'runtime/licenses/qt').is_dir():
     raise RuntimeError('Missing Qt/PySide redistribution notices in runtime/licenses/qt.')
 for name in ('README.md','LICENSE','COPYRIGHT','THIRD-PARTY-NOTICES.md','BUILDING.md','CONTRIBUTING.md','CHANGELOG.md'):

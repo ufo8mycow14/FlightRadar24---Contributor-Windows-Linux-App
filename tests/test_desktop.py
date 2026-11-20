@@ -148,6 +148,8 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.receiver.start_release.clear()
         self.window.operation('start')
         self.wait_for(self.receiver.start_entered.is_set)
+        self.assertTrue(self.window.message.isHidden())
+        self.assertEqual(self.window.health.text(), 'Receiver: starting…')
         gui_ticks = []
         QTimer.singleShot(0, lambda: gui_ticks.append(threading.get_ident()))
         self.receiver.status['messages'] = 55
@@ -159,6 +161,11 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.assertTrue(all(t != threading.get_ident() for t in self.receiver.work_threads))
         self.receiver.start_release.set()
         self.wait_for(lambda: not self.window._action_pending)
+        self.assertTrue(self.window.message.isHidden())
+        self.window.operation('stop')
+        self.wait_for(lambda: not self.window._action_pending and not self.window._poll_pending)
+        self.assertTrue(self.window.message.isHidden())
+        self.assertIn('stopped', self.window.health.text())
 
     def test_async_shutdown_finishes_cleanup_before_close(self):
         self.window._set_list_detached(True)

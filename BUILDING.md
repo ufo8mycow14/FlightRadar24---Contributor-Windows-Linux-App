@@ -54,7 +54,7 @@ python build.py --dist-dir C:\FlightRadarBuild\dist --work-dir C:\FlightRadarBui
 python installer/build_setup.py --package C:\FlightRadarBuild\dist\FlightRadar24 --output C:\FlightRadarBuild\setup --iscc 'C:\path\to\ISCC.exe'
 ```
 
-For a public receiver package, prepare the runtime without `runtime/feeder/fr24feed` and pass `--public-release` to `installer/build_setup.py`. That option refuses a package containing the proprietary executable and enables the optional vendor-download task. Keep the compatibility runtime, offline driver helper and all notices. Pair the installer with the matching app source, dependency source archive and SHA256SUMS file on the same release page. `docs/RELEASE-SOURCES.json` records the exact dependency source versions and digests for 0.4.0.
+For a public receiver package, prepare the runtime without `runtime/feeder/fr24feed` and pass `--public-release` to `installer/build_setup.py`. That option refuses a package containing the proprietary executable and enables the optional vendor-download task. Keep the compatibility runtime, offline driver helper and all notices. Pair the installer with the matching app source, dependency source archive and SHA256SUMS file on the same release page. `docs/RELEASE-SOURCES.json` records the exact dependency source versions and digests for 0.6.4.
 
 Test the optional download only in disposable folders with `FRW_TEST_VENDOR_DOWNLOAD=1 python -m unittest discover -s tests -p test_feeder_download.py -v`. Without that variable, the official-network integration test is skipped while rejection/preservation tests still run. These checks do not register an account, run a feeder, change a USB driver or read a receiver profile.
 

@@ -1,12 +1,12 @@
 # Windows download and source files
 
-[Download the Windows x64 installer](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.4.0/FlightRadar24-0.4.0-Windows-x64-Setup.exe)
+[Download the Windows x64 installer](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.6.4/FlightRadar24-0.6.4-Windows-x64-Setup.exe)
 
-Version 0.4.0 is a native Windows desktop application. It needs no Python installation, browser, Raspberry Pi or Linux virtual machine. Linux remains a source/build target awaiting native verification; macOS is deferred.
+Version 0.6.4 is a native Windows desktop application. It needs no Python installation, browser, Raspberry Pi or Linux virtual machine. Linux remains a source/build target awaiting native verification; macOS is deferred.
 
 ## Install and start
 
-1. Download `FlightRadar24-0.4.0-Windows-x64-Setup.exe` from [Releases](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.4.0).
+1. Download `FlightRadar24-0.6.4-Windows-x64-Setup.exe` from [Releases](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.6.4).
 2. Run setup. The app and supported USB driver components are included. An existing healthy WinUSB binding is preserved. Windows elevation and driver-signature checks still apply.
 3. If you want to send received aircraft to Flightradar24, select **Install optional Flightradar24 sharing**. Setup downloads its unchanged component from `repo-feed.flightradar24.com` over HTTPS and checks both the archive and executable against pinned SHA-256 values. This step needs internet access and Windows `tar.exe` (included with Windows 10 version 1803 and later).
 4. Open **FlightRadar24** from the Start menu. Configure your source and actual antenna location in **Receiver settings**, save, then start reception. F1 opens the offline guide.
@@ -20,10 +20,11 @@ The installer is unsigned. Check the file name, download location and published 
 
 | File | Purpose |
 | --- | --- |
-| `FlightRadar24-0.4.0-Windows-x64-Setup.exe` | App, receiver runtime, notices and offline driver setup, with optional vendor sharing download. |
-| `FlightRadar24-0.4.0-source.zip` | Project source, tests, installer source, current native patches and build instructions. |
-| `FlightRadar24-0.4.0-corresponding-source.zip` | Exact dependency source archives, the app source ZIP, helper source/overlays, notices and source index. |
-| `SHA256SUMS.txt` | SHA-256 digests for the three release files. |
+| `FlightRadar24-0.6.4-Windows-x64-Setup.exe` | App, receiver runtime, notices and offline driver setup, with optional vendor sharing download. |
+| `FlightRadar24-0.6.4-source.zip` | Project source, tests, installer source, current native patches and build instructions. |
+| `FlightRadar24-0.6.4-corresponding-source.zip` | Exact dependency source archives, the app source ZIP, helper source/overlays, notices and source index. |
+| `FlightRadar24-0.6.4-Windows-x64-Portable.zip` | Extract-and-run receiver; USB drivers and optional sharing require the installer. |
+| `SHA256SUMS.txt` | SHA-256 digests for the four release files. |
 
 All source downloads are available at no charge from the same release page. Sources and binaries retain their own licences. The source archive contains the upstream decoder plus the current Windows patch, Blink plus its current Windows patch, terminal-supervisor/guest-helper source, complete libwdi source/overlays, Cygwin, GCC runtime source package, pyModeS, pyserial, PyInstaller, PySide/Shiboken, QtBase, QtSvg and QtImageFormats. The selected Qt libraries/plugins remain separate replaceable DLLs; the package does not use Qt WebEngine.
 
@@ -33,6 +34,8 @@ The official proprietary `fr24feed` executable, user profiles, keys, receiver hi
 
 ## Verification scope
 
-The app executable is the same 0.4.0 Windows binary exercised in the installed native application. The earlier full application suite ran 133 tests: 132 passed and one Linux-only check was skipped. The installed 0.4.0 package matched all 385 files and preserved settings, protected sharing key and history before restart. Public packaging removes the vendor executable and adds source/notices and the optional download flow; its packaging and download checks are recorded for this release.
+This release includes the detachable Aircraft table, independent full-screen windows, emergency flashing and removal of routine receiver notices over the map. The preceding 0.6.3 source suite ran 124 tests: 123 passed and one Linux-only check was skipped. The 0.6.4 desktop integration checks also cover starting/stopping without map popups. Public package checks exercise synthetic playback with 48 messages from three aircraft and verify display preferences and the missing optional sharing component. The public installer excludes the vendor executable and offers its optional verified download.
+
+Independent full-screen, docking, layout restoration and selection were tested with native Qt widgets. Interactive testing on two physical monitors was unavailable because Windows denied desktop automation access; no physical two-monitor validation is claimed.
 
 Past live reception and account-side upload confirmation cover one development receiver. They do not guarantee another receiver, antenna or account. Active vendor MLAT, external email/phone receipt, Linux runtime and screen-reader conformance remain unverified. No driver rebinding is performed merely to test an already working device.

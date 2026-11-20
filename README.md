@@ -6,7 +6,17 @@ FlightRadar24 is an independent, open-source ADS-B and Mode S desktop applicatio
 
 The application uses **native Qt Widgets**. It opens in its own program window, with no Chrome, WebView or browser engine. Windows x64 is the tested target. Linux x86-64 support is in development; macOS is a future option.
 
-> This community project is not affiliated with or endorsed by Flightradar24 AB. The optional official feeder is proprietary and separately licensed. This public repository contains reviewed source code, documentation and examples; it does not distribute that feeder or a complete Windows installer.
+## Download for Windows
+
+### [Download FlightRadar24 0.6.4 — Windows x64 installer (.exe)](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.6.4/FlightRadar24-0.6.4-Windows-x64-Setup.exe)
+
+[All release files and checksums](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.6.4) · [Installation guide](docs/RELEASE.md)
+
+Download the installer, run it, then open **FlightRadar24** from the Start menu. Python and a browser are not required. Setup includes the app and offline USB driver components. To share reception with Flightradar24, select **Install optional Flightradar24 sharing** during setup; that component downloads directly from its vendor and requires internet access. You can also add it by running setup again later.
+
+This release is for **64-bit Windows**. It is unsigned; no verified-publisher certificate is claimed. Linux binaries and a macOS installer are not available yet.
+
+> This community project is not affiliated with or endorsed by Flightradar24 AB. The optional official feeder is proprietary and separately licensed. It is obtained directly from Flightradar24, not redistributed in our installer. The app, dependency source archives, build instructions and licences are available with the release.
 
 ## USB receivers
 
@@ -33,7 +43,7 @@ Direct USB support is **not implemented** for Airspy, HackRF, SDRplay, 978 MHz U
 - **Worldwide airport reference.** Offline search across 5,282 large and medium airports, plus manual entries. Proximity counts show nearby reception, not confirmed arrivals or departures.
 - **Controlled storage.** Set history age/size, snapshot interval and rotating-log limits. Oldest managed history is pruned automatically. CSV exports remain under your control.
 - **Multiple sources and outputs.** USB RTL-SDR, Beast/AVR TCP or serial, SBS TCP and unsigned 8-bit I/Q playback; configurable RAW, SBS and timestamped Beast outputs.
-- **Optional Flightradar24 sharing.** Protected sharing-key storage, official registration integration, feeder supervision and connection/MLAT monitor values when a complete runtime is supplied.
+- **Optional Flightradar24 sharing.** Protected sharing-key storage, official registration integration, feeder supervision and connection/MLAT monitor values after installing the optional sharing component.
 - **Offline Support centre.** Search the full guide, browse topics, save it to Markdown and use interactive prefilled dummy examples. F1 opens help.
 - **Private-by-default setup.** No default external alert recipient, local-only stream binding and no automatic support submission. A safe support template contains version/platform information without station details.
 

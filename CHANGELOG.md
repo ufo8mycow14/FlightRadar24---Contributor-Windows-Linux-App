@@ -1,5 +1,10 @@
 # Changes
 
+## 0.6.4
+
+- Removed receiver starting/started/stopping/stopped and normal shutdown notices from over the map. Routine receiver status stays in the top bar; errors remain visible.
+- Published a Windows installer with optional vendor sharing download, a portable receiver package, matching application/dependency sources and checksums.
+
 ## 0.6.3
 
 - The bottom Aircraft table can detach into its own resizable window for another monitor. Move to monitor, independent full screen (F11, Esc to exit), and Dock back controls keep the map and table synchronised. Closing the table docks it; saved layouts reopen, with a bottom-drawer fallback when a monitor is disconnected.

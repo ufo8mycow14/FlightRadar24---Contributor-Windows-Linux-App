@@ -13,7 +13,7 @@ The project-authored controller/UI and documentation use GNU GPL v3 or later (se
 | GCC runtime | libgcc 14.4.0-1 | Unmodified runtime DLL; GCC runtime library exception applies as documented by upstream. |
 | pyModeS | 3.7.0 | GPL v3. Source included in the companion archive, along with its licence. |
 | pyserial | 3.5 | BSD licence; source and licence included. |
-| Python | 3.12, bundled interpreter/runtime | Python Software Foundation licence and notices retained. |
+| Python | 3.12.14, bundled interpreter/runtime | Python Software Foundation licence and bundled component notices retained from the exact build interpreter. |
 | PyInstaller | 6.22.3 | Build tool/bootloader. GPL with its documented bootloader exception. |
 | Qt for Python (PySide6 Essentials and shiboken6) | 6.11.3 | Native Qt Widgets and Qt Network controls, distributed using the LGPLv3 option. Qt Quick and Qt WebEngine are not used. Complete licence texts, upstream notice inventories and exact versioned source/archive hashes are under `runtime/licenses/qt`; shared libraries remain replaceable. See [Qt for Python licensing](https://doc.qt.io/qtforpython-6/licenses.html) and the package's `SOURCE-AND-NOTICES.md`. |
 | OpenStreetMap | Worldwide map tiles, `https://tile.openstreetmap.org/` | Map data © OpenStreetMap contributors, ODbL. Attribution is displayed on the map. Tile use is subject to `https://operations.osmfoundation.org/policies/tiles/`; no bulk downloads or offline tile archive are provided. |
@@ -24,7 +24,7 @@ The project-authored controller/UI and documentation use GNU GPL v3 or later (se
 
 The project-authored `frw-pty` supervisor and generated guest probe helpers are supplied under the MIT licence with source and licence text in `work/source-delivery`. The supervisor's Cygwin runtime dependency uses the existing Cygwin licence and linking exception described above. The generated guest helpers implement only the documented discovery probes; they are not Bash or general Linux process tools.
 
-The decoder's top-level MIT notice does not replace the separate licences in its compiled dependencies. The 0.4.0 corresponding-source release contains the exact full decoder archive and current patch, matching runtime sources and current controller/helper build instructions. Its explicitly Tor-derived smartlist code has the upstream BSD licence and smartlist copyright notice under `runtime/licences/decoder-components`; the ZIP wrapper's supplementary upstream MIT licence remains there too. The supplementary notices do not claim that these Windows ports are byte-identical to upstream files.
+The decoder's top-level MIT notice does not replace the separate licences in its compiled dependencies. The 0.6.4 corresponding-source release contains the exact full decoder archive and current patch, matching runtime sources and current controller/helper build instructions. Its explicitly Tor-derived smartlist code has the upstream BSD licence and smartlist copyright notice under `runtime/licences/decoder-components`; the ZIP wrapper's supplementary upstream MIT licence remains there too. The supplementary notices do not claim that these Windows ports are byte-identical to upstream files.
 
 The Windows application uses native Qt Widgets, Qt Network and QPainter; it does not launch or bundle a browser or Qt WebEngine. Qt's shared libraries and platform plugin are shipped as separate replaceable files in the one-folder package. The native map requests tiles only as the user views geographic areas; its bounded disk cache is in the app's user profile.
 

@@ -717,12 +717,13 @@ class FlightRadarWindow(QMainWindow):
         self._action_pending = True
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(False)
-        self.notice('Starting receiver…' if name == 'start' else 'Stopping receiver…')
+        self.health.setText('Receiver: starting…' if name == 'start' else 'Receiver: stopping…')
         def done(value, error=None):
             self._action_pending = False
             if self._closing:
                 return
-            self.notice(str(error) if error else 'Receiver ' + ('started.' if name == 'start' else 'stopped.'), bool(error))
+            if error:
+                self.notice(str(error), True)
             self.poll()
         self.dispatcher.invoke('/api/' + name, {}, done)
 
@@ -933,7 +934,7 @@ class FlightRadarWindow(QMainWindow):
         self.tabs.setEnabled(False)
         if self.aircraft_window is not None:
             self.aircraft_window.setEnabled(False)
-        self.notice('Closing FlightRadar24 · stopping receiver and sharing…')
+        self.health.setText('Closing · stopping receiver and sharing…')
         def done(value, error=None):
             if error:
                 self._closing = False
