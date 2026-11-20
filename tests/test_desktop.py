@@ -21,8 +21,9 @@ try:
 except ImportError:
     QT_AVAILABLE = False
 else:
-    from PySide6.QtCore import QCoreApplication, QEvent, QTimer, Qt
+    from PySide6.QtCore import QCoreApplication, QEvent, QTimer, Qt, QSettings
     from PySide6.QtWidgets import QApplication
+    from PySide6.QtTest import QTest
     from frw.config import DEFAULT
     from frw.desktop import FlightRadarWindow
     from frw.native_map import _MapCanvas
@@ -112,6 +113,9 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.map_network.start()
         self.no_http = patch.object(socket.socket, 'bind', side_effect=AssertionError('Desktop opened a listening socket'))
         self.no_http.start()
+        self.ui_settings = QSettings(str(Path(self.directory.name) / 'ui.ini'), QSettings.Format.IniFormat)
+        self.settings_patch = patch('frw.desktop.QSettings', return_value=self.ui_settings)
+        self.settings_patch.start()
         self.window = FlightRadarWindow(self.receiver)
         self.window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
         self.window.show()
@@ -132,6 +136,7 @@ class DesktopIntegrationTests(unittest.TestCase):
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
         self.map_network.stop()
         self.no_http.stop()
+        self.settings_patch.stop()
         self.directory.cleanup()
 
     def refresh(self):
@@ -156,6 +161,8 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.wait_for(lambda: not self.window._action_pending)
 
     def test_async_shutdown_finishes_cleanup_before_close(self):
+        self.window._set_list_detached(True)
+        aircraft_window = self.window.aircraft_window
         self.receiver.stop_release.clear()
         self.window.close()
         self.wait_for(self.receiver.stop_entered.is_set)
@@ -163,6 +170,7 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.assertTrue(self.window._closing)
         self.assertFalse(self.window._can_close)
         self.assertFalse(self.window.tabs.isEnabled())
+        self.assertFalse(aircraft_window.isEnabled())
         self.assertFalse(self.receiver.log.close.called)
         gui_ticks = []
         QTimer.singleShot(0, lambda: gui_ticks.append(True))
@@ -171,14 +179,17 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.wait_for(lambda: self.window._can_close)
         self.assertTrue(self.window.dispatcher.closed)
         self.assertFalse(self.window.isVisible())
+        self.assertFalse(aircraft_window.isVisible())
         self.receiver.feeder.signup_stop.assert_called_once()
         self.receiver.log.close.assert_called_once()
 
     def test_failed_shutdown_resumes_pages_and_allows_retry(self):
+        self.window._set_list_detached(True)
         self.receiver.shutdown_failures = 1
         self.window.close()
         self.wait_for(lambda: not self.window._closing)
         self.assertTrue(self.window.tabs.isEnabled())
+        self.assertTrue(self.window.aircraft_window.isEnabled())
         self.assertFalse(self.window.pages._closed)
         self.assertTrue(self.window.pages._timer.isActive())
         self.assertFalse(self.window.dispatcher.closed)
@@ -249,6 +260,90 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.wait_for(lambda: self.window.details.lost)
         self.assertEqual(self.window.details.snapshot['icao'], 'A00001')
         self.assertEqual(self.window.details.status.text(), 'Signal lost')
+
+    def test_detached_table_remains_live_and_docks_at_bottom_on_close(self):
+        self.receiver.status['aircraft'] = list(self.receiver.details.values())
+        self.refresh()
+        table = self.window.table
+        self.window._detach_button.click()
+        detached = self.window.aircraft_window
+        self.app.processEvents()
+        self.assertTrue(detached.isWindow())
+        self.assertIs(detached.centralWidget(), self.window.list_panel)
+        self.assertEqual(self.window.map.canvas.bottom_reserved, 0)
+        self.assertNotIn(self.window.list_panel, [w for w, a in self.window.map._overlays])
+        detached.resize(1100, 500)
+        self.window.resize(1000, 700)
+        self.app.processEvents()
+        self.assertGreater(self.window.list_panel.height(), 280)
+        self.assertEqual(self.window.table.rowCount(), 2)
+        self.receiver.status['aircraft'][0]['callsign'] = 'UPDATED'
+        self.refresh()
+        self.assertEqual(table.item(0, 0).text(), 'UPDATED')
+        self.window.search_box.setText('SECOND')
+        self.assertEqual(table.rowCount(), 1)
+        self.assertEqual([r['icao'] for r in self.window.map.canvas.rows], ['A00002'])
+        table.selectRow(0)
+        self.wait_for(lambda: self.window.details.snapshot.get('icao') == 'A00002')
+        self.assertFalse(self.window.details_panel.isHidden())
+        detached.close()
+        self.app.processEvents()
+        self.assertIsNone(self.window.aircraft_window)
+        self.assertIs(self.window.table, table)
+        self.assertEqual(table.rowCount(), 1)
+        self.assertIs(self.window.list_panel.parent(), self.window.map.canvas)
+        self.assertEqual(self.window.list_panel.height(), 280)
+        self.assertEqual(self.window.list_panel.y(), self.window.map.canvas.height() - 290)
+        self.assertFalse(self.window._closing)
+        self.assertEqual(self.window.selected, 'A00002')
+
+    def test_both_windows_support_independent_fullscreen_and_screen_movement(self):
+        self.window._detach_action.trigger()
+        detached = self.window.aircraft_window
+        self.window._fullscreen_action.trigger()
+        self.window._list_fullscreen_button.click()
+        self.app.processEvents()
+        self.assertTrue(self.window.isFullScreen())
+        self.assertTrue(detached.isFullScreen())
+        self.window._populate_screen_menu()
+        self.assertEqual(len(self.window._screen_menu.actions()), len(self.app.screens()))
+        self.window._screen_menu.actions()[0].trigger()
+        self.app.processEvents()
+        self.assertTrue(detached.isFullScreen())
+        self.assertIs(detached.screen(), self.app.screens()[0])
+        detached.activateWindow()
+        self.app.processEvents()
+        QTest.keyClick(detached, Qt.Key.Key_Escape)
+        self.assertFalse(detached.isFullScreen())
+        self.assertTrue(self.window.isFullScreen())
+        QTest.keyClick(detached, Qt.Key.Key_F11)
+        self.assertTrue(detached.isFullScreen())
+        self.app.setActiveWindow(self.window)  # main fixture is WA_DontShowOnScreen
+        self.app.processEvents()
+        self.assertIs(self.app.activeWindow(), self.window)
+        self.assertTrue(self.window._fullscreen_action.isChecked())
+        QTest.keyClick(self.window, Qt.Key.Key_F11)
+        self.assertFalse(self.window.isFullScreen())
+        self.assertTrue(detached.isFullScreen())
+
+    def test_detached_layout_restores_and_missing_monitor_docks_safely(self):
+        self.window._set_list_detached(True)
+        saved_width = min(1050, self.app.primaryScreen().availableGeometry().width() - 40)
+        self.window.aircraft_window.resize(saved_width, 520)
+        self.app.processEvents()
+        self.window._save_ui_state()
+        self.window._set_list_detached(False)
+        self.window._restore_ui_state()
+        self.app.processEvents()
+        self.assertIsNotNone(self.window.aircraft_window)
+        self.assertEqual(self.window.aircraft_window.width(), saved_width)
+        self.assertEqual(self.window.aircraft_window.height(), 520)
+        self.window._screen_removed(self.app.primaryScreen())
+        self.assertIsNone(self.window.aircraft_window)
+        self.ui_settings.setValue('airspace/detachedScreen', 'disconnected-test-monitor')
+        self.window._restore_ui_state()
+        self.assertIsNone(self.window.aircraft_window)
+        self.assertEqual(self.window.list_panel.height(), 280)
 
 
 if __name__ == '__main__':

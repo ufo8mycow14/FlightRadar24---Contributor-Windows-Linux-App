@@ -43,6 +43,30 @@ class NativeMapTests(unittest.TestCase):
         self.map.deleteLater()
         self.app.processEvents()
 
+    def test_emergency_aircraft_flashes_and_steady_red_option(self):
+        canvas = self.map.canvas
+        canvas.rows = [dict(icao='E00001', latitude=0, longitude=.1, track=90, squawk='7700', trail=[]),
+                       dict(icao='E00002', latitude=0, longitude=.2, track=90, squawk='1200', trail=[])]
+        canvas._flash_on = False
+        self.assertFalse(canvas._emergency_flash_on())
+        canvas._tick_flash()
+        self.assertTrue(canvas._emergency_flash_on())
+        canvas._tick_flash()
+        self.assertFalse(canvas._emergency_flash_on())
+        # No emergencies: flashing settles off and stops repainting.
+        canvas.rows = [canvas.rows[1]]
+        canvas._flash_on = True
+        canvas._tick_flash()
+        self.assertFalse(canvas._flash_on)
+        # Preference off: steady red (flash_on reported true, timer never toggles).
+        self.map.set_display({'emergency_flash': False})
+        canvas.rows = [dict(icao='E00001', latitude=0, longitude=.1, squawk='7600', trail=[])]
+        canvas._flash_on = False
+        canvas._tick_flash()
+        self.assertFalse(canvas._flash_on)
+        self.assertTrue(canvas._emergency_flash_on())
+        self.assertEqual(self.map.canvas.display['emergency_flash'], False)
+
     def test_date_line_fit_and_track_unwrap(self):
         rows = [dict(icao='EAST', latitude=-17, longitude=179.8),
                 dict(icao='WEST', latitude=-17.1, longitude=-179.8)]

@@ -15,6 +15,7 @@ DISPLAY_DEFAULT = {
     'range_rings': True,          # station-centred range rings on the map
     'follow_selected': False,     # keep the selected aircraft centred on the map
     'cardinals': True,            # N/E/S/W compass and range-ring cardinal labels
+    'emergency_flash': True,      # flash emergency aircraft red on the map (off = steady red)
     'north_reference': 'true',    # 'true' or 'magnetic' for bearings/compass
     'magnetic_variation': 0.0,    # degrees, east positive, user-entered from a chart
 }
@@ -42,7 +43,7 @@ def validate_display(value):
         raise ConfigError('Choose aviation or metric display units.')
     if c['map_labels'] not in MAP_LABELS:
         raise ConfigError('Choose a map label style.')
-    for key in ('range_rings', 'follow_selected', 'cardinals'):
+    for key in ('range_rings', 'follow_selected', 'cardinals', 'emergency_flash'):
         if type(c[key]) is not bool:
             raise ConfigError(key + ' must be true or false.')
     if c['north_reference'] not in NORTH_REFERENCES:

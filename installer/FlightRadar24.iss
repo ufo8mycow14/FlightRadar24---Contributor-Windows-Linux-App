@@ -1,13 +1,13 @@
 ; Compile with ISCC /DAppSource=C:\path\to\FlightRadar24 /DSetupOutput=C:\path\to\dist
 ; The build must already contain the offline WinUSB helper and its manifest.
 #ifndef AppSource
-  #define AppSource "..\work\package-native\FlightRadar24"
+  #define AppSource "..\work\package\FlightRadar24"
 #endif
 #ifndef SetupOutput
   #define SetupOutput "..\work\installer-dist"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.6.2"
+  #define AppVersion "0.6.3"
 #endif
 #ifndef PublicRelease
   #define PublicRelease 0

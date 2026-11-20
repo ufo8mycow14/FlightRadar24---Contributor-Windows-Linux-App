@@ -5,7 +5,7 @@ from collections import OrderedDict
 import math
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QUrl, Signal
+from PySide6.QtCore import QPointF, QRectF, Qt, QUrl, Signal, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache, QNetworkReply, QNetworkRequest
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
@@ -37,12 +37,18 @@ def _nearby(value, reference):
     return value + round(reference - value)
 
 
-def _plane(painter, point, heading, selected=False):
+def _plane(painter, point, heading, selected=False, emergency=False, flash_on=False):
     painter.save()
     painter.translate(point)
     painter.rotate(float(heading) if _number(heading) else 0)
-    painter.setPen(QPen(QColor('#694700' if selected else '#155b51'), 1.2))
-    painter.setBrush(QColor('#ffbd45' if selected else '#38c8ad'))
+    if emergency:
+        # Emergency aircraft flash bright red / pale so they cannot be missed;
+        # with flashing disabled flash_on stays true for a steady red marker.
+        painter.setPen(QPen(QColor('#7a1220'), 1.4))
+        painter.setBrush(QColor('#ff2d3f' if flash_on else '#fff0f1'))
+    else:
+        painter.setPen(QPen(QColor('#694700' if selected else '#155b51'), 1.2))
+        painter.setBrush(QColor('#ffbd45' if selected else '#38c8ad'))
     painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in (
         (0, -16), (3, -4), (13, 4), (13, 7), (3, 4), (2, 11),
         (6, 14), (6, 16), (0, 14), (-6, 16), (-6, 14), (-2, 11),
@@ -78,6 +84,11 @@ class _MapCanvas(QWidget):
         self.banner_left = 10
         self.bottom_reserved = 0
         self.display = dict(DISPLAY_DEFAULT)
+        self._flash_on = False
+        self._flash_timer = QTimer(self)
+        self._flash_timer.setInterval(600)
+        self._flash_timer.timeout.connect(self._tick_flash)
+        self._flash_timer.start()
         self._tiles = OrderedDict()
         self._failed = {}
         self._inflight = {}
@@ -163,6 +174,20 @@ class _MapCanvas(QWidget):
         self.update()
         self._pump_tiles()
 
+    def _tick_flash(self):
+        flashing = self.display.get('emergency_flash', True)
+        active = flashing and any(is_emergency(row) for row in self.rows)
+        if active:
+            self._flash_on = not self._flash_on
+            self.update()
+        elif self._flash_on:
+            self._flash_on = False
+            self.update()
+
+    def _emergency_flash_on(self):
+        # Steady red when flashing is switched off in Display preferences.
+        return self._flash_on if self.display.get('emergency_flash', True) else True
+
     def paintEvent(self, event):
         painter = QPainter(self)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -219,11 +244,13 @@ class _MapCanvas(QWidget):
                 continue
             chosen = row.get('icao') == self.selected
             emergency = is_emergency(row)
-            _plane(painter, point, row.get('track'), chosen)
+            flash_on = self._emergency_flash_on() if emergency else False
+            _plane(painter, point, row.get('track'), chosen, emergency, flash_on)
             if emergency:
-                painter.setPen(QPen(QColor('#c62f3b'), 2))
+                painter.setPen(QPen(QColor('#ff2d3f'), 3 if flash_on else 1.6))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                painter.drawEllipse(point, 20, 20)
+                radius = 25 if flash_on else 19
+                painter.drawEllipse(point, radius, radius)
             mode = self.display.get('map_labels', 'callsign')
             label = str(row.get('callsign') or row.get('icao') or '').strip()
             detail = ''
@@ -239,9 +266,9 @@ class _MapCanvas(QWidget):
                 width = max(painter.fontMetrics().horizontalAdvance(line) for line in lines) + 10
                 box = QRectF(point.x() + 15, point.y() - 10, width, 20 if len(lines) == 1 else 34)
                 painter.setPen(QPen(QColor('#c62f3b' if emergency else '#bd933e' if chosen else '#8bbcaf'), 1.5 if emergency else 1))
-                painter.setBrush(QColor('#ffe9ea' if emergency else '#fff1ce' if chosen else '#f2fffb'))
+                painter.setBrush(QColor('#c62f3b' if emergency and flash_on else '#ffe9ea' if emergency else '#fff1ce' if chosen else '#f2fffb'))
                 painter.drawRoundedRect(box, 3, 3)
-                painter.setPen(QColor('#7a1220' if emergency else '#172e3d'))
+                painter.setPen(QColor('#ffffff' if emergency and flash_on else '#7a1220' if emergency else '#172e3d'))
                 painter.drawText(box, Qt.AlignmentFlag.AlignCenter, '\n'.join(lines))
             self._markers.append((str(row.get('icao', '')), point, box))
         painter.setClipping(False)
@@ -494,6 +521,11 @@ class NativeMap(QWidget):
         self._position_overlays()
 
     def refresh_overlays(self):
+        self._position_overlays()
+
+    def remove_overlay(self, widget):
+        """Release layout ownership before a panel moves to another window."""
+        self._overlays = [(panel, anchor) for panel, anchor in self._overlays if panel is not widget]
         self._position_overlays()
 
     def _position_overlays(self):

@@ -1,5 +1,10 @@
 # Changes
 
+## 0.6.3
+
+- The bottom Aircraft table can detach into its own resizable window for another monitor. Move to monitor, independent full screen (F11, Esc to exit), and Dock back controls keep the map and table synchronised. Closing the table docks it; saved layouts reopen, with a bottom-drawer fallback when a monitor is disconnected.
+- Emergency aircraft now flash red on the map: the plane marker alternates bright red/pale about once a second with a pulsing red ring and an inverted red label, so a 7500/7600/7700 or transponder emergency state draws the eye immediately. Display & units can switch flashing off for a steady red marker instead.
+
 ## 0.6.2
 
 - Corrected the aircraft list placement: it is again a floating box along the bottom of the map, now spanning the map's length at a modest depth (collapsible to a slim bar), with Find and filter controls reorganised into two compact rows so more of the box is table.

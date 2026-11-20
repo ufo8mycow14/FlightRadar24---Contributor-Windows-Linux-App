@@ -563,6 +563,7 @@ class FeaturePreferences(QScrollArea):
         self.display_rings=QCheckBox('Show range rings around my antenna on the map');displayform.addRow(self.display_rings)
         self.display_follow=QCheckBox('Keep the selected aircraft centred on the map');displayform.addRow(self.display_follow)
         self.display_cardinals=QCheckBox('Show compass and N/E/S/W cardinal labels');displayform.addRow(self.display_cardinals)
+        self.display_flash=QCheckBox('Flash emergency aircraft red on the map (off = steady red)');displayform.addRow(self.display_flash)
         self.display_north=QComboBox()
         for title,key in [('True north','true'),('Magnetic north (uses the variation below)','magnetic')]:self.display_north.addItem(title,key)
         displayform.addRow('Bearing & compass reference',self.display_north)
@@ -624,7 +625,7 @@ class FeaturePreferences(QScrollArea):
             self.display_units.setCurrentIndex(max(0,self.display_units.findData(display.get('units','aviation'))))
             self.display_labels.setCurrentIndex(max(0,self.display_labels.findData(display.get('map_labels','callsign'))))
             self.display_rings.setChecked(bool(display.get('range_rings',True)));self.display_follow.setChecked(bool(display.get('follow_selected',False)))
-            self.display_cardinals.setChecked(bool(display.get('cardinals',True)))
+            self.display_cardinals.setChecked(bool(display.get('cardinals',True)));self.display_flash.setChecked(bool(display.get('emergency_flash',True)))
             self.display_north.setCurrentIndex(max(0,self.display_north.findData(display.get('north_reference','true'))))
             self.display_variation.setValue(float(display.get('magnetic_variation',0) or 0))
             self.email_enabled.setChecked(config['delivery']['email_enabled']);self.webhook_enabled.setChecked(config['delivery']['webhook_enabled'])
@@ -635,7 +636,7 @@ class FeaturePreferences(QScrollArea):
     def save(self):
         changes={key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in FEATURE_DEFAULT}
         changes['history_enabled']=self.history.isChecked()
-        changes['display']={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),'range_rings':self.display_rings.isChecked(),'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),'north_reference':self.display_north.currentData(),'magnetic_variation':self.display_variation.value()}
+        changes['display']={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),'range_rings':self.display_rings.isChecked(),'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),'emergency_flash':self.display_flash.isChecked(),'north_reference':self.display_north.currentData(),'magnetic_variation':self.display_variation.value()}
         delivery=copy.deepcopy(self.model.value['delivery'])
         delivery.update({key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in delivery})
         delivery.update(email_enabled=self.email_enabled.isChecked(),webhook_enabled=self.webhook_enabled.isChecked(),smtp_tls=self.tls.currentData(),webhook_kind=self.webkind.currentData())

@@ -52,7 +52,7 @@ def validate_driver_manifest(manifest):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--package', type=Path, default=ROOT/'work/package-native/FlightRadar24')
+    parser.add_argument('--package', type=Path, default=ROOT/'work/package/FlightRadar24')
     parser.add_argument('--output', type=Path, default=ROOT/'work/installer-dist')
     parser.add_argument('--iscc', type=Path, required=True, help='Inno Setup 6 compiler executable')
     parser.add_argument('--version', default=__version__)

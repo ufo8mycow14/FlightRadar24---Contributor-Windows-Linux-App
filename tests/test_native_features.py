@@ -49,6 +49,7 @@ class NativeFeatureTests(unittest.TestCase):
         self.network.stop();self.temp.cleanup()
 
     def test_filter_updates_all_airspace_views_and_persists_without_radio_mutation(self):
+        self.window._set_list_detached(True)
         self.window.rows=[{'icao':'ABC123','callsign':'ONE','altitude':1000,'latitude':0,'longitude':0},
                           {'icao':'ABC124','callsign':'TWO','altitude':2000,'latitude':1,'longitude':1}]
         before=copy.deepcopy(self.receiver.settings.value)
@@ -62,6 +63,7 @@ class NativeFeatureTests(unittest.TestCase):
         self.window.feature_model.save({'filter_enabled':False})
         self.wait(lambda:not self.window.feature_model.pending)
         self.assertEqual(self.window.table.rowCount(),2)
+        self.window._set_list_detached(False)
 
     def test_statistics_received_counts_airport_reference_and_empty_recovery(self):
         now=time.time()

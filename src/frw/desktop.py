@@ -10,7 +10,7 @@ from PySide6.QtGui import QAction, QIcon, QPixmap, QPainter, QColor, QFont, QBru
 from PySide6.QtCore import QPointF
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
     QHBoxLayout, QLabel, QPushButton, QSplitter, QTableWidget, QTableWidgetItem, QLineEdit, QFrame, QSizePolicy,
-    QAbstractItemView, QHeaderView, QDockWidget, QTabWidget, QFileDialog, QToolBar, QComboBox, QDialog, QSystemTrayIcon)
+    QAbstractItemView, QHeaderView, QDockWidget, QTabWidget, QFileDialog, QToolBar, QComboBox, QDialog, QSystemTrayIcon, QMenu)
 from .control import Controller
 from .native_map import NativeMap, NativeAircraftDetails
 from .native_pages import NativePages
@@ -80,6 +80,36 @@ def _control_icon(kind):
     return QIcon(pixmap)
 
 
+class AircraftWindow(QMainWindow):
+    """A second window for the same live table; closing it docks the table."""
+    dockRequested = Signal()
+    fullscreenChanged = Signal(bool)
+
+    def __init__(self, parent):
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle('Aircraft — FlightRadar24')
+        self.setMinimumSize(720, 320)
+        self.resize(1200, 700)
+        for key, callback in [('F11', self.toggle_fullscreen), ('Escape', self.exit_fullscreen)]:
+            shortcut = QShortcut(QKeySequence(key), self)
+            shortcut.activated.connect(callback)
+
+    def toggle_fullscreen(self):
+        self.exit_fullscreen() if self.isFullScreen() else self.showFullScreen()
+
+    def exit_fullscreen(self):
+        if self.isFullScreen():
+            self.showNormal()
+
+    def changeEvent(self, event):
+        super().changeEvent(event)
+        self.fullscreenChanged.emit(self.isFullScreen())
+
+    def closeEvent(self, event):
+        event.ignore()
+        self.dockRequested.emit()
+
+
 class FlightRadarWindow(QMainWindow):
     def __init__(self, receiver, instance=None):
         super().__init__()
@@ -94,6 +124,7 @@ class FlightRadarWindow(QMainWindow):
         self._search_text = ''
         self._sort_key = None
         self._sort_reverse = False
+        self.aircraft_window = None
         self._ui_settings = QSettings('FlightRadar24 Community', 'FlightRadar24')
         self._seen_alerts = set()
         self._notification_events = {}
@@ -200,6 +231,20 @@ class FlightRadarWindow(QMainWindow):
         self.search_box.textChanged.connect(self._search_changed)
         header.addWidget(self.search_box, 1)
         header.addStretch(1)
+        self._screen_button = QPushButton('Move to monitor')
+        self._screen_menu = QMenu(self._screen_button)
+        self._screen_menu.aboutToShow.connect(self._populate_screen_menu)
+        self._screen_button.setMenu(self._screen_menu)
+        self._screen_button.hide()
+        header.addWidget(self._screen_button)
+        self._list_fullscreen_button = QPushButton('Full screen (F11)')
+        self._list_fullscreen_button.clicked.connect(lambda: self.aircraft_window.toggle_fullscreen())
+        self._list_fullscreen_button.hide()
+        header.addWidget(self._list_fullscreen_button)
+        self._detach_button = QPushButton('↗ Detach')
+        self._detach_button.setToolTip('Open the live Aircraft table in a separate window for another monitor')
+        self._detach_button.clicked.connect(self._toggle_detached_list)
+        header.addWidget(self._detach_button)
         self._collapse_button = QPushButton('▾')
         self._collapse_button.setAccessibleName('Collapse aircraft list')
         self._collapse_button.setToolTip('Collapse the aircraft list to give the map more room')
@@ -208,7 +253,7 @@ class FlightRadarWindow(QMainWindow):
         header.addWidget(self._collapse_button)
         panel_layout.addLayout(header)
         find_shortcut = QShortcut(QKeySequence.StandardKey.Find, self)
-        find_shortcut.activated.connect(lambda: (self.tabs.setCurrentIndex(0), self._set_list_collapsed(False), self.search_box.setFocus(), self.search_box.selectAll()))
+        find_shortcut.activated.connect(self._find_aircraft)
         self._list_body = QWidget()
         body = QVBoxLayout(self._list_body)
         body.setContentsMargins(0, 0, 0, 0)
@@ -286,7 +331,6 @@ class FlightRadarWindow(QMainWindow):
         details_layout.addWidget(self.details)
         self.map.add_overlay(self.details_panel, 'details-left')
         self.details_panel.hide()
-        self._restore_ui_state()
         self.details.closed.connect(self.clear_selection)
         menu = self.menuBar().addMenu('&File')
         for title, callback in [('Export aircraft CSV…', self.export_aircraft), ('Logs and diagnostics', lambda: self.show_page('logs')), ('Exit', self.close)]:
@@ -302,6 +346,15 @@ class FlightRadarWindow(QMainWindow):
         self._table_action = QAction('Aircraft list', self, checkable=True, checked=True)
         self._table_action.triggered.connect(lambda checked: self._set_list_collapsed(not checked))
         menu.addAction(self._table_action)
+        self._detach_action = QAction('Detach Aircraft table', self, checkable=True)
+        self._detach_action.triggered.connect(self._set_list_detached)
+        menu.addAction(self._detach_action)
+        self._fullscreen_action = QAction('Full screen', self, checkable=True)
+        self._fullscreen_action.setShortcut('F11')
+        self._fullscreen_action.triggered.connect(self._set_fullscreen)
+        menu.addAction(self._fullscreen_action)
+        escape = QShortcut(QKeySequence('Escape'), self)
+        escape.activated.connect(lambda: self._set_fullscreen(False))
         follow_action = QAction('Follow selected aircraft on map', self)
         follow_action.triggered.connect(lambda: self.show_page('features'))
         follow_action.setToolTip('Display preference: Receiver & settings → Storage & alerts → Display & units')
@@ -325,6 +378,107 @@ class FlightRadarWindow(QMainWindow):
                 action.setShortcut(shortcut)
             action.triggered.connect(callback)
             support_menu.addAction(action)
+        self._restore_ui_state()
+        QApplication.instance().screenRemoved.connect(self._screen_removed)
+
+    def _set_fullscreen(self, fullscreen):
+        if fullscreen:
+            self.showFullScreen()
+        elif self.isFullScreen():
+            self.showNormal()
+        self._fullscreen_action.setChecked(self.isFullScreen())
+
+    def _toggle_detached_list(self):
+        self._set_list_detached(self.aircraft_window is None)
+
+    def _set_list_detached(self, detached):
+        if self._closing or bool(detached) == (self.aircraft_window is not None):
+            return
+        if detached:
+            self._set_list_collapsed(False)
+            self.map.remove_overlay(self.list_panel)
+            self.list_panel.setMinimumSize(0, 0)
+            self.list_panel.setMaximumSize(16777215, 16777215)
+            window = self.aircraft_window = AircraftWindow(self)
+            window.setCentralWidget(self.list_panel)
+            window.dockRequested.connect(lambda: self._set_list_detached(False))
+            window.fullscreenChanged.connect(lambda full: self._list_fullscreen_button.setText(
+                'Exit full screen (F11)' if full else 'Full screen (F11)'))
+            find = QShortcut(QKeySequence.StandardKey.Find, window)
+            find.activated.connect(self._find_aircraft)
+            self._collapse_button.hide()
+            self._screen_button.show()
+            self._list_fullscreen_button.show()
+            self._detach_button.setText('↙ Dock back')
+            self._detach_button.setToolTip('Return the Aircraft table to the bottom of the map')
+            geometry = self._ui_settings.value('airspace/detachedGeometry')
+            if geometry:
+                window.restoreGeometry(geometry)
+            window.show()
+            window.raise_()
+            window.activateWindow()
+        else:
+            window = self.aircraft_window
+            self._save_aircraft_geometry()
+            window.takeCentralWidget()
+            self.aircraft_window = None
+            self._screen_button.hide()
+            self._list_fullscreen_button.hide()
+            self._collapse_button.show()
+            self._detach_button.setText('↗ Detach')
+            self._detach_button.setToolTip('Open the live Aircraft table in a separate window for another monitor')
+            self.map.add_overlay(self.list_panel, 'bottom-full')
+            self._set_list_collapsed(False)
+            window.hide()
+            window.deleteLater()
+        self._detach_action.setChecked(bool(detached))
+
+    def _save_aircraft_geometry(self):
+        if self.aircraft_window is not None:
+            self._ui_settings.setValue('airspace/detachedGeometry', self.aircraft_window.saveGeometry())
+            self._ui_settings.setValue('airspace/detachedScreen', self.aircraft_window.screen().name())
+
+    def _populate_screen_menu(self):
+        self._screen_menu.clear()
+        for number, screen in enumerate(QApplication.screens(), 1):
+            area = screen.geometry()
+            action = self._screen_menu.addAction(f'Monitor {number}: {screen.name()} ({area.width()} × {area.height()})')
+            action.setCheckable(True)
+            action.setChecked(self.aircraft_window is not None and self.aircraft_window.screen() is screen)
+            action.triggered.connect(lambda checked=False, target=screen: self._move_aircraft_to_screen(target))
+
+    def _move_aircraft_to_screen(self, screen):
+        window = self.aircraft_window
+        if window is None or screen not in QApplication.screens():
+            return
+        fullscreen, maximised = window.isFullScreen(), window.isMaximized()
+        window.showNormal()
+        window.windowHandle().setScreen(screen)
+        area = screen.availableGeometry()
+        window.resize(min(1200, area.width()), min(700, area.height()))
+        window.move(area.center() - window.rect().center())
+        if fullscreen:
+            window.showFullScreen()
+        elif maximised:
+            window.showMaximized()
+        window.raise_()
+        window.activateWindow()
+
+    def _screen_removed(self, screen):
+        # A changed monitor arrangement must not leave the table inaccessible.
+        if self.aircraft_window is not None:
+            self._set_list_detached(False)
+
+    def _find_aircraft(self):
+        if self.aircraft_window is not None:
+            self.aircraft_window.show()
+            self.aircraft_window.raise_()
+            self.aircraft_window.activateWindow()
+        else:
+            self.tabs.setCurrentIndex(0)
+            self._set_list_collapsed(False)
+        self.search_box.setFocus()
+        self.search_box.selectAll()
 
     def open_help(self):
         dialog = HelpDialog(self)
@@ -366,6 +520,10 @@ class FlightRadarWindow(QMainWindow):
         self._layout_top_status()
 
     def _set_list_collapsed(self, collapsed):
+        if self.aircraft_window is not None:
+            self._find_aircraft()
+            self._table_action.setChecked(True)
+            return
         self._list_collapsed = bool(collapsed)
         self._list_body.setVisible(not collapsed)
         self.list_panel._overlay_height = 42 if collapsed else 280
@@ -420,6 +578,11 @@ class FlightRadarWindow(QMainWindow):
                 self.restoreState(state)
             if str(self._ui_settings.value('airspace/listCollapsed', 'false')).lower() == 'true':
                 self._set_list_collapsed(True)
+            saved_screen = self._ui_settings.value('airspace/detachedScreen', '')
+            screen_available = not saved_screen or saved_screen in {s.name() for s in QApplication.screens()}
+            if screen_available and str(self._ui_settings.value('airspace/listDetached', 'false')).lower() == 'true':
+                self._set_list_detached(True)
+            self._fullscreen_action.setChecked(self.isFullScreen())
         except Exception:
             pass  # a corrupt UI preference must never block startup
 
@@ -428,6 +591,8 @@ class FlightRadarWindow(QMainWindow):
             self._ui_settings.setValue('window/geometry', self.saveGeometry())
             self._ui_settings.setValue('window/state', self.saveState())
             self._ui_settings.setValue('airspace/listCollapsed', bool(self._list_collapsed))
+            self._ui_settings.setValue('airspace/listDetached', self.aircraft_window is not None)
+            self._save_aircraft_geometry()
             self._ui_settings.sync()
         except Exception:
             pass
@@ -748,6 +913,8 @@ class FlightRadarWindow(QMainWindow):
 
     def closeEvent(self, event):
         if self._can_close:
+            if self.aircraft_window is not None:
+                self.aircraft_window.hide()
             event.accept()
             return
         event.ignore()
@@ -764,11 +931,15 @@ class FlightRadarWindow(QMainWindow):
         self.start_button.setEnabled(False)
         self.stop_button.setEnabled(False)
         self.tabs.setEnabled(False)
+        if self.aircraft_window is not None:
+            self.aircraft_window.setEnabled(False)
         self.notice('Closing FlightRadar24 · stopping receiver and sharing…')
         def done(value, error=None):
             if error:
                 self._closing = False
                 self.tabs.setEnabled(True)
+                if self.aircraft_window is not None:
+                    self.aircraft_window.setEnabled(True)
                 self.pages.resume_polling()
                 if self.feature_model:
                     self.statistics_page.closed=False

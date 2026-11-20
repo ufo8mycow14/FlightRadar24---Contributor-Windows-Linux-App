@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.6.2 · Kieran O'Rourke
+Version 0.6.3 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -163,8 +163,16 @@ Airspace is a near-full-screen worldwide map. Reception and sharing status run a
 5. Open Filters to limit displayed traffic. Clear filters to restore all received aircraft.
 6. Use Find (Ctrl+F) to jump to a callsign or ICAO address without changing your saved filters. Click a column heading to sort the list; aircraft missing that value stay at the bottom.
 7. Distance, bearing and the dotted rings are measured from your antenna latitude/longitude; rings step every 50 nautical miles (or kilometres in metric display). Leave the station position unset and those stay blank rather than guessing.
-8. A red row and red map ring mark a broadcast emergency squawk (7500, 7600 or 7700) or transponder emergency state. It is shown as received and is not independently verified.
+8. An aircraft broadcasting an emergency squawk (7500, 7600 or 7700) or transponder emergency state flashes red on the map with a pulsing ring, and its list row is red. Display & units can switch the flashing off for a steady red marker. It is shown as received and is not independently verified.
 9. Window size and layout are remembered for next time. Close the details panel to regain space.
+
+### Use two monitors
+
+1. Choose Detach in the Aircraft header, or View → Detach Aircraft table. The same live table opens in a separate resizable window, freeing the map's bottom edge.
+2. Drag its title bar to another monitor, or choose Move to monitor and select the display. Maximise it normally, or use Full screen (F11). On the main map window, View → Full screen or F11 works independently, so both displays can run full screen. Esc exits full screen in the active window.
+3. Find, filters, sorting and aircraft selection stay synchronised with the map. Selecting a row opens the same compact details popup on the map's left side. Ctrl+F focuses Find in the table window.
+4. Use Dock back or close the Aircraft window to return the table to its floating box along the bottom. Closing the main application closes both windows and stops the receiver normally.
+5. The separate window's position, size and full-screen state are remembered when the application closes. If its saved monitor is missing at startup, the table stays docked. Disconnecting a monitor while the app is open also docks the table so it remains accessible.
 
 ### Internet and freshness
 
