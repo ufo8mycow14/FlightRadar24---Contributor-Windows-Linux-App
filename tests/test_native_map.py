@@ -67,6 +67,33 @@ class NativeMapTests(unittest.TestCase):
         self.assertTrue(canvas._emergency_flash_on())
         self.assertEqual(self.map.canvas.display['emergency_flash'], False)
 
+    def test_varied_silhouettes_render_and_heavy_tip_is_selectable(self):
+        from frw.aircraft_symbols import SYMBOLS
+        from frw.native_symbols import draw_aircraft_symbol, symbol_path
+        from PySide6.QtGui import QImage, QPainter
+        from PySide6.QtCore import QRectF
+        pixels = set()
+        for symbol in SYMBOLS:
+            image = QImage(64,64,QImage.Format.Format_ARGB32)
+            image.fill(QColor('white'))
+            painter = QPainter(image)
+            draw_aircraft_symbol(painter,QPointF(32,32),symbol=symbol,emergency=True,flash_on=True)
+            painter.end()
+            self.assertTrue(any(image.pixelColor(x,y).name() == '#ff2d3f'
+                                for x in range(64) for y in range(64)), symbol)
+            pixels.add(bytes(image.constBits()))
+            self.assertTrue(QRectF(-16,-16,32,32).contains(symbol_path(symbol).boundingRect()),symbol)
+        self.assertEqual(len(pixels),len(SYMBOLS))
+        self.map.set_display({'map_labels':'none'})
+        self.map.update_aircraft([dict(icao='A00001',latitude=0,longitude=.1,
+                                      category_typecode=4,category=5,track=0)],{})
+        self.map.fit_aircraft()
+        self.app.processEvents()
+        canvas = self.map.canvas
+        point = canvas._markers[0][1]
+        self.assertEqual(canvas._hit_aircraft(point+QPointF(0,-22)),'A00001')
+        self.assertEqual(canvas._hit_aircraft(point+QPointF(0,-30)),'')
+
     def test_date_line_fit_and_track_unwrap(self):
         rows = [dict(icao='EAST', latitude=-17, longitude=179.8),
                 dict(icao='WEST', latitude=-17.1, longitude=-179.8)]

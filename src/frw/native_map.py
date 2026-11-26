@@ -11,6 +11,8 @@ from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache, QNetwork
 from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QToolTip, QVBoxLayout, QWidget
 
 from .native_details import NativeAircraftDetails
+from .aircraft_symbols import aircraft_symbol, symbol_radius
+from .native_symbols import draw_aircraft_symbol
 from .display import (DISPLAY_DEFAULT, aircraft_hover_html, destination_point, is_emergency,
                       map_label_lines, north_offset_deg)
 
@@ -38,26 +40,9 @@ def _nearby(value, reference):
     return value + round(reference - value)
 
 
-def _plane(painter, point, heading, selected=False, emergency=False, flash_on=False, conflict=''):
-    painter.save()
-    painter.translate(point)
-    painter.rotate(float(heading) if _number(heading) else 0)
-    if emergency or conflict == 'red':
-        # Emergency aircraft flash bright red / pale so they cannot be missed;
-        # with flashing disabled flash_on stays true for a steady red marker.
-        painter.setPen(QPen(QColor('#7a1220'), 1.4))
-        painter.setBrush(QColor('#ff2d3f' if flash_on else '#fff0f1'))
-    elif conflict == 'yellow':
-        painter.setPen(QPen(QColor('#705400'), 1.4))
-        painter.setBrush(QColor('#ffdf00' if flash_on else '#fffde2'))
-    else:
-        painter.setPen(QPen(QColor('#694700' if selected else '#155b51'), 1.2))
-        painter.setBrush(QColor('#ffbd45' if selected else '#38c8ad'))
-    painter.drawPolygon(QPolygonF([QPointF(x, y) for x, y in (
-        (0, -16), (3, -4), (13, 4), (13, 7), (3, 4), (2, 11),
-        (6, 14), (6, 16), (0, 14), (-6, 16), (-6, 14), (-2, 11),
-        (-3, 4), (-13, 7), (-13, 4), (-3, -4))]))
-    painter.restore()
+def _plane(painter, point, heading, selected=False, emergency=False, flash_on=False, conflict='', symbol='unknown'):
+    draw_aircraft_symbol(painter, point, float(heading) if _number(heading) else 0,
+                         symbol, selected, emergency, flash_on, conflict)
 
 
 def _distance_bearing(origin, destination):
@@ -101,6 +86,7 @@ class _MapCanvas(QWidget):
         self._inflight = {}
         self._needed = []
         self._markers = []
+        self._marker_radii = {}
         self._press = None
         self._last_drag = None
         self._dragged = False
@@ -271,9 +257,13 @@ class _MapCanvas(QWidget):
             painter.setBrush(QColor('#087768'))
             painter.drawEllipse(center, 6, 6)
         self._markers = []
+        self._marker_radii = {}
         occupied = []
-        marker_bounds = [QRectF(p.x()-22, p.y()-22, 44, 44)
-                         for p in (self._screen(r['latitude'], r['longitude']) for r in self.rows)]
+        marker_bounds = []
+        for row in self.rows:
+            p = self._screen(row['latitude'], row['longitude'])
+            radius = symbol_radius(aircraft_symbol(row))
+            marker_bounds.append(QRectF(p.x()-radius, p.y()-radius, radius*2, radius*2))
         painter.setFont(QFont('Segoe UI', 9))
         for row in sorted(self.rows, key=lambda row: row.get('icao') == self.selected):
             point = self._screen(row['latitude'], row['longitude'])
@@ -282,12 +272,15 @@ class _MapCanvas(QWidget):
             chosen = row.get('icao') == self.selected
             emergency = is_emergency(row)
             level, flash_on = self._warning_style(row)
-            _plane(painter, point, row.get('track'), chosen, emergency, flash_on, level)
+            symbol = aircraft_symbol(row)
+            radius = symbol_radius(symbol)
+            self._marker_radii[str(row.get('icao', ''))] = radius
+            _plane(painter, point, row.get('track'), chosen, emergency, flash_on, level, symbol)
             if level:
                 painter.setPen(QPen(QColor('#ff2d3f' if level == 'red' else '#d6ae00'), 3 if flash_on else 1.6))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
-                radius = 25 if flash_on else 19
-                painter.drawEllipse(point, radius, radius)
+                ring = radius + (5 if flash_on else 2)
+                painter.drawEllipse(point, ring, ring)
             lines = map_label_lines(row, self.display, self.station)
             # Warning identity remains visible even with ordinary labels hidden.
             if level:
@@ -464,7 +457,7 @@ class _MapCanvas(QWidget):
     def _hit_aircraft(self, position):
         for icao, point, box in reversed(self._markers):
             delta = position - point
-            if delta.x() ** 2 + delta.y() ** 2 <= 20 ** 2 or box.contains(position):
+            if delta.x() ** 2 + delta.y() ** 2 <= self._marker_radii.get(icao, 20) ** 2 or box.contains(position):
                 return icao
         return ''
 
@@ -769,6 +762,7 @@ class _RadarCanvas(QWidget):
         self.setAccessibleName('Offline range radar showing received aircraft positions')
         self.rows, self.station, self.selected, self.range_nm = [], None, '', 200
         self._markers = []
+        self._marker_radii = {}
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -791,6 +785,7 @@ class _RadarCanvas(QWidget):
         for text, x, y in (('N', 0, -radius - 10), ('E', radius + 12, 4), ('S', 0, radius + 20), ('W', -radius - 20, 4)):
             painter.drawText(center + QPointF(x - 3, y), text)
         self._markers = []
+        self._marker_radii = {}
         if self.station is not None:
             def point(latitude, longitude):
                 distance, bearing = _distance_bearing(self.station, (latitude, longitude))
@@ -808,7 +803,9 @@ class _RadarCanvas(QWidget):
                 if len(trail) > 1:
                     painter.setPen(QPen(QColor('#f3ba51' if chosen else '#317967'), 2 if chosen else 1))
                     painter.drawPolyline(QPolygonF(trail))
-                _plane(painter, position, row.get('track'), chosen)
+                symbol = aircraft_symbol(row)
+                self._marker_radii[str(row.get('icao', ''))] = symbol_radius(symbol)
+                _plane(painter, position, row.get('track'), chosen, symbol=symbol)
                 painter.setPen(QColor('#ffe0a1' if chosen else '#c8e3df'))
                 painter.drawText(position + QPointF(15, 4), str(row.get('callsign') or row.get('icao') or ''))
                 self._markers.append((str(row.get('icao', '')), position))
@@ -825,7 +822,7 @@ class _RadarCanvas(QWidget):
         if event.button() == Qt.MouseButton.LeftButton:
             for icao, point in reversed(self._markers):
                 delta = event.position() - point
-                if delta.x() ** 2 + delta.y() ** 2 < 20 ** 2:
+                if delta.x() ** 2 + delta.y() ** 2 <= self._marker_radii.get(icao, 20) ** 2:
                     self.aircraftSelected.emit(icao)
                     return
         super().mouseReleaseEvent(event)

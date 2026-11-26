@@ -19,6 +19,7 @@ from .conflicts import evaluate_conflicts
 from .display import (DISPLAY_DEFAULT, bearing_suffix, display_bearing, distance_bearing, emergency_text, format_altitude,
     format_distance, format_seen, format_speed, format_track, format_vertical_rate,
     is_emergency, quick_match, sort_rows)
+from .native_symbols import AircraftSymbolGuide
 from .native_features import FeatureModel, FilterDialog, StatisticsPage, AlertsPage, FeaturePreferences, describe
 from .native_support import HelpDialog, PracticeDialog, AboutDialog
 from .support import support_summary
@@ -354,6 +355,9 @@ class FlightRadarWindow(QMainWindow):
             action = QAction('Map labels & conflict display…', self)
             action.triggered.connect(lambda: self.show_page('features'))
             menu.addAction(action)
+        action = QAction('Aircraft symbol guide…', self)
+        action.triggered.connect(lambda: AircraftSymbolGuide(self).exec())
+        menu.addAction(action)
         menu.addSeparator()
         self._table_action = QAction('Aircraft list', self, checkable=True, checked=True)
         self._table_action.triggered.connect(lambda checked: self._set_list_collapsed(not checked))

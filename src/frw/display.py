@@ -5,6 +5,8 @@ shown by these formatters comes from a field the receiver actually decoded;
 missing or non-finite values render as an explicit placeholder.
 """
 from __future__ import annotations
+
+from .aircraft_symbols import symbol_label
 import math
 import html
 import time
@@ -268,9 +270,9 @@ def map_label_lines(row, display, station=None):
 
 def aircraft_hover_html(row, display, station=None, conflict=None):
     """Escaped bounded HTML tooltip for received aircraft and estimate context."""
-    if not (display or {}).get('aircraft_hover', True): return ''
+    if not row or not (display or {}).get('aircraft_hover', True): return ''
     display = {**DISPLAY_DEFAULT, **(display or {})}
-    labels = [('Callsign', str(row.get('callsign') or '').strip()[:32]), ('ICAO', str(row.get('icao') or '').strip()[:16]),
+    labels = [('Map symbol', symbol_label(row)), ('Callsign', str(row.get('callsign') or '').strip()[:32]), ('ICAO', str(row.get('icao') or '').strip()[:16]),
               ('Altitude', format_altitude(row.get('altitude'), display['units']) if row.get('altitude') is not None else ''),
               ('Ground speed', format_speed(row.get('groundspeed'), display['units']) if row.get('groundspeed') is not None else ''),
               ('Track', format_track(row.get('track')) if row.get('track') is not None else ''),

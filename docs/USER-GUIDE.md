@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.7.0 · Kieran O'Rourke
+Version 0.7.1 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -165,6 +165,14 @@ Airspace is a near-full-screen worldwide map. Reception and sharing status run a
 7. Distance, bearing and the dotted rings are measured from your antenna latitude/longitude; rings step every 50 nautical miles (or kilometres in metric display). Leave the station position unset and those stay blank rather than guessing.
 8. An aircraft broadcasting an emergency squawk (7500, 7600 or 7700) or transponder emergency state flashes red on the map with a pulsing ring, and its list row is red. Display & units can switch the flashing off for a steady red marker. It is shown as received and is not independently verified.
 9. Window size and layout are remembered for next time. Close the details panel to regain space.
+
+### Identify aircraft silhouettes
+
+Shapes and sizes follow the received ADS-B emitter category: light, small, large, high-vortex, heavy, high-performance, helicopter/rotorcraft, glider, lighter-than-air, parachutist, ultralight, uncrewed and space/transatmospheric craft. Surface vehicles and ground obstacles have distinct symbols too.
+
+Open View → Aircraft symbol guide for the visual legend, or hover over a marker to see its category. Unknown, missing or reserved categories use a directional marker. A category is not an exact model, engine type or true-to-scale size. The receiver does not infer a helicopter from its callsign or speed.
+
+Silhouettes turn with received ground track. Balloons, parachutists and obstacles stay upright. Selected aircraft stay amber; emergency and estimated-conflict colours and flashing apply to every silhouette.
 
 ### Use two monitors
 

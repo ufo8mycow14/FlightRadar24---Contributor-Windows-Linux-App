@@ -1,5 +1,10 @@
 # Changes
 
+## 0.7.1
+
+- Original vector map symbols distinguish light, small, large, heavy and high-performance aircraft, helicopters, gliders, lighter-than-air craft, parachutists, ultralights and uncrewed aircraft. Sizes follow broad received categories; unknown categories use a directional marker. Surface vehicles and obstacles have their own symbols.
+- View → Aircraft symbol guide explains every silhouette. Hover details identify the map category; selection, emergency/conflict flashing and click targets work across all sizes. No model or engine type is guessed.
+
 ## 0.7.0
 
 - Both aircraft in an estimated close approach flash yellow, escalating to red for the shorter/tighter window. Uses fresh airborne pressure-altitude and motion data; separate enable/flashing switches, stale-data expiry and hidden-partner checks. Estimates are explicitly not TCAS or manoeuvre guidance.
