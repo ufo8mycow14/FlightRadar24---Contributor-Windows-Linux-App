@@ -150,6 +150,8 @@ class Aircraft:
             observed={key:val for key,val in r.items() if key in ('icao','altitude_source','vr_source') or
                       key in r['field_times'] and _fresh(r,key,now) and isinstance(val,(str,int,float,bool))}
             observed['field_ages']={key:round(max(0,now-stamp),1) for key,stamp in r['field_times'].items() if key in observed}
+            if updates.get('callsign'):
+                observed['callsign_received'] = now
             self.observer(observed,now)
         sbs_row={'icao':icao}
         for key in ('callsign','groundspeed','track','squawk','on_ground','latitude','longitude'):

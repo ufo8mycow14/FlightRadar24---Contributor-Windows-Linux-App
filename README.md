@@ -8,9 +8,9 @@ The application uses **native Qt Widgets**. It opens in its own program window, 
 
 ## Download for Windows
 
-### [Download FlightRadar24 0.8.1 — Windows x64 installer (.exe)](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.8.1/FlightRadar24-0.8.1-Windows-x64-Setup.exe)
+### [Download FlightRadar24 0.8.2 — Windows x64 installer (.exe)](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.8.2/FlightRadar24-0.8.2-Windows-x64-Setup.exe)
 
-[All release files and checksums](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.8.1) · [Installation guide](docs/RELEASE.md)
+[All release files and checksums](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.8.2) · [Installation guide](docs/RELEASE.md)
 
 Download the installer, run it, then open **FlightRadar24** from the Start menu. Python and a browser are not required. Setup includes the app and offline USB driver components. To share reception with Flightradar24, select **Install optional Flightradar24 sharing** during setup; that component downloads directly from its vendor and requires internet access. You can also add it by running setup again later.
 
@@ -25,7 +25,7 @@ Use a suitable **1090 MHz antenna**. A receiver listing alone does not prove tha
 | USB device / family | Support status | Driver notes |
 | --- | --- | --- |
 | **RTL-SDR Blog V4** | Live reception tested on Windows x64 | WinUSB on the SDR interface; the decoder includes Blog V4 support. |
-| **A12E RTL2832U ADS-B / Mode-S (`0BDA:2832`)** | Live reception tested on Windows x64 | Single-interface WinUSB setup is supported by the updated driver helper. Included in the 0.8.1 installer. |
+| **A12E RTL2832U ADS-B / Mode-S (`0BDA:2832`)** | Live reception tested on Windows x64 | Single-interface WinUSB setup is supported by the updated driver helper. Included in the 0.8.2 installer. |
 | **RTL2832U with R820T / R820T2** | Intended compatible family; each other model remains unverified on hardware | Includes common Blog V3-style and generic RTL-SDR dongles when their hardware/IDs are compatible. |
 | **USB IDs `0BDA:2832` and `0BDA:2838`** | Composite interface 0; also single-interface `0BDA:2832` | Complete Windows setup checks these devices and preserves an existing working WinUSB binding. Composite parents and other interfaces are excluded. |
 | Other receivers with **Beast, AVR or SBS** output | Use the supported network/serial input instead of direct USB | Decoded SBS is display/SBS-forwarding only; it cannot reconstruct raw frames or feed the vendor service. |
@@ -40,7 +40,7 @@ Direct USB support is **not implemented** for Airspy, HackRF, SDRplay, 978 MHz U
 - **Live aircraft details.** Callsign, ICAO24 address, squawk, position, altitude, ground speed, track, vertical rate, source and measurement ages. Expanded groups show additional broadcast fields when available.
 - **Flexible display filters.** Callsigns/prefixes, exact ICAO24 addresses, squawks, altitude, speed, distance, emitter category, source, ground/airborne state, position and emergencies. Save named presets.
 - **Aircraft watches and alerts.** In-app history, system sound, native desktop notification requests and optional TLS email or HTTPS ntfy/Discord/generic webhook delivery. Cooldowns, quiet hours and rate limits control noise.
-- **Reception statistics.** Traffic and unique-aircraft charts, coverage by bearing, source totals, encounters, measurements and retained alerts. Live reception and recorded playback stay separate.
+- **Reception statistics.** Aircraft encounters show when each callsign was last received, days ago and the number of separate encounters for that ICAO24 across retained history. Older approximate callsign dates are marked ≈. Live reception and recorded playback stay separate.
 - **Worldwide airport reference.** Offline search across 5,282 large and medium airports, plus manual entries. Proximity counts show nearby reception, not confirmed arrivals or departures.
 - **Controlled storage.** Set history age/size, snapshot interval and rotating-log limits. Oldest managed history is pruned automatically. CSV exports remain under your control.
 - **Multiple sources and outputs.** USB RTL-SDR, Beast/AVR TCP or serial, SBS TCP and unsigned 8-bit I/Q playback; configurable RAW, SBS and timestamped Beast outputs.

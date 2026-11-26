@@ -1,5 +1,9 @@
 # Changes
 
+## 0.8.2
+
+- Statistics → Aircraft encounters and its CSV show when a callsign was last received, local calendar days since, and the number of separate encounters with that aircraft across retained history. Older callsign dates are marked approximate.
+
 ## 0.8.1
 
 - Fixed Statistics tab freezes: table refreshes batch column sizing and retain unchanged cells instead of repeatedly recalculating widths for every cell.

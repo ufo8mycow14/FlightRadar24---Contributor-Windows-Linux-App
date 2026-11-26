@@ -66,6 +66,8 @@ def fill_table(target, rows, fields):
                 value = row.get(field)
                 if field in ('first', 'last', 'time'):
                     value = clock(value)
+                elif field == 'callsign_last_seen' and value:
+                    value = ('≈ ' if row.get('callsign_last_seen_estimated') else '') + dt.datetime.fromisoformat(value).strftime('%d %b %Y %H:%M:%S')
                 text = display(value)
                 item = target.item(i, j)
                 if item is None:
@@ -440,7 +442,11 @@ class StatisticsPage(QWidget):
         self.sources=table(['Received source','Decoded messages']);self.sources.setMinimumHeight(160);overview.addWidget(self.sources)
         overview.addWidget(label('Counts describe only this receiver’s coverage. Unique aircraft means distinct ICAO24 addresses. An encounter is an address seen with no gap of 20 minutes. It is not a confirmed flight or airport movement. Empty chart intervals mean no stored reports, including when the receiver was off. Period boundaries are rounded to minutes.'))
         self.tabs.addTab(scroll,'Overview')
-        self.encounters=table(['ICAO24','Callsign','First received','Last received','Messages','Max altitude ft','Max speed kt','Closest NM','Source'])
+        self.encounters=table(['ICAO24','Callsign','Callsign last seen','Days ago','Aircraft times seen','First received','Last received','Messages','Max altitude ft','Max speed kt','Closest NM','Source'])
+        for column, tip in enumerate(['Latest reception of this callsign across aircraft. ≈ means the last associated encounter before exact callsign recording began.',
+                                     'Local calendar days since that callsign was seen; 0 means today.',
+                                     'Distinct encounters for this ICAO24 in all retained history for the selected source. A gap of at least 20 minutes starts another.'], 2):
+            self.encounters.horizontalHeaderItem(column).setToolTip(tip)
         self.tabs.addTab(self.encounters,'Aircraft encounters')
         airportbody=QWidget();airportlayout=QVBoxLayout(airportbody)
         airportlayout.addWidget(label('Aircraft encounters observed within each configured airport radius. These counts do not establish origin, destination, arrival or departure. Add airports worldwide with their coordinates below.'))
@@ -484,7 +490,7 @@ class StatisticsPage(QWidget):
         sectors={r['sector']:r['distance'] for r in report['coverage']}
         self.coverage.set_points([(name,sectors.get(i,0)) for i,name in enumerate(['N','NE','E','SE','S','SW','W','NW'])] if sectors else [])
         fill_table(self.sources,report['sources'],['source','messages'])
-        fill_table(self.encounters,report['encounters'],['icao','callsign','first','last','messages','max_alt','max_speed','min_distance','source'])
+        fill_table(self.encounters,report['encounters'],['icao','callsign','callsign_last_seen','days_ago','times_seen','first','last','messages','max_alt','max_speed','min_distance','source'])
         fill_table(self.airports,report['airports'],['code','name','radius','encounters','closest_nm'])
         fill_table(self.alerts,report['alerts'],['time','rule','icao','callsign','delivery','body'])
 

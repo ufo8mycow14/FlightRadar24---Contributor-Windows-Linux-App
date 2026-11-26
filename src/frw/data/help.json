@@ -709,6 +709,16 @@
             "A local reception encounter, not a confirmed flight."
           ],
           [
+            "Callsign last seen / Days ago",
+            "Latest reception of that callsign and local calendar days since (0 means today)",
+            "A callsign can move between aircraft. Dates marked ≈ are approximate: older versions kept the associated encounter end, not the time of the callsign message."
+          ],
+          [
+            "Aircraft times seen",
+            "Distinct retained encounters for this ICAO24 address across all callsigns",
+            "Uses all retained history for the selected source, including encounters outside the displayed period. Live reception and playback are counted separately."
+          ],
+          [
             "Accepted / rejected frames",
             "Input processing counters",
             "Not all frames contain a position or every aircraft field."

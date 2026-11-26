@@ -1,6 +1,7 @@
 """Behavioural checks for filters, alerts, bounded history and safe delivery."""
 from __future__ import annotations
 import copy
+from contextlib import closing
 import datetime as dt
 import json
 import os
@@ -127,6 +128,42 @@ class HistoryTests(unittest.TestCase):
         self.assertEqual(report['summary']['closest_nm'],0)
         self.assertEqual(sum(p['messages'] for p in report['traffic']),5)
         self.assertEqual(self.store.report(self.config,24,'playback',now=self.now+1400)['summary']['messages'],1)
+
+    def test_callsign_date_and_days_are_independent_of_aircraft_encounter_counts(self):
+        midnight = dt.datetime.combine(dt.date.today(), dt.time()).timestamp()
+        last_call = midnight - 10
+        self.store.write([
+            (last_call-7200,'live',observation(callsign='OLD',callsign_received=last_call-7200)),
+            (last_call,'live',observation(callsign=' Test ',callsign_received=last_call)),
+            (midnight+20,'live',observation(callsign='TEST')),
+            (midnight+30,'live',observation('ABC124',callsign='TEST',callsign_received=last_call+2)),
+            (midnight+35,'live',observation('ABC125',callsign='')),
+            (midnight+40,'playback',observation(callsign='TEST',callsign_received=midnight+40)),
+        ],[],self.config,(0,0))
+        report = self.store.report(self.config,1,'live',now=midnight+50)
+        by_address = {row['icao']:row for row in report['encounters']}
+        self.assertEqual(by_address['ABC123']['times_seen'],2)
+        self.assertEqual(by_address['ABC124']['times_seen'],1)
+        for address in ('ABC123','ABC124'):
+            row = by_address[address]
+            self.assertEqual(dt.datetime.fromisoformat(row['callsign_last_seen']).timestamp(),last_call+2)
+            self.assertEqual((row['days_ago'], row['callsign_last_seen_estimated']), (1,0))
+        self.assertIsNone(by_address['ABC125']['days_ago'])
+        playback = self.store.report(self.config,1,'playback',now=midnight+50)['encounters'][0]
+        self.assertEqual((playback['days_ago'],playback['times_seen']),(0,1))
+
+    def test_upgrade_marks_legacy_callsign_date_until_a_real_identity_report(self):
+        self.store.write([(self.now,'live',observation())],[],self.config,(0,0))
+        with closing(sqlite3.connect(self.store.path)) as connection, connection:
+            connection.execute('DROP TABLE callsign_history')
+            connection.execute('PRAGMA user_version=1')
+        legacy = self.store.report(self.config)['encounters'][0]
+        self.assertEqual((legacy['callsign_last_seen_estimated'], legacy['times_seen']), (1,1))
+        self.store.write([(self.now+10,'live',observation(callsign_received=self.now+10))],[],self.config,(0,0))
+        self.store.write([(self.now+30,'live',observation())],[],self.config,(0,0))
+        latest = self.store.report(self.config,now=self.now+30)['encounters'][0]
+        self.assertEqual(latest['callsign_last_seen_estimated'],0)
+        self.assertEqual(dt.datetime.fromisoformat(latest['callsign_last_seen']).timestamp(),int(self.now+10))
 
     def test_retention_size_lowering_and_recording_off(self):
         self.store.write([(self.now-40*86400,'live',observation())],[],self.config,(0,0))

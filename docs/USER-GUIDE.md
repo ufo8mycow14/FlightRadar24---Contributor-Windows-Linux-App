@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.8.1 · Kieran O'Rourke
+Version 0.8.2 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -401,6 +401,8 @@ Statistics are collected directly from decoded observations, independently of di
 | --- | --- | --- |
 | Unique aircraft | Distinct ICAO24 addresses | Not a count of verified registrations or scheduled flights. |
 | Encounter | Reception separated by a 20-minute gap | A local reception encounter, not a confirmed flight. |
+| Callsign last seen / Days ago | Latest reception of that callsign and local calendar days since (0 means today) | A callsign can move between aircraft. Dates marked ≈ are approximate: older versions kept the associated encounter end, not the time of the callsign message. |
+| Aircraft times seen | Distinct retained encounters for this ICAO24 address across all callsigns | Uses all retained history for the selected source, including encounters outside the displayed period. Live reception and playback are counted separately. |
 | Accepted / rejected frames | Input processing counters | Not all frames contain a position or every aircraft field. |
 | Vendor aircraft reports sent | Feeder monitor reports | Different from received RF messages or unique aircraft. |
 | Range sectors | Maximum received range by bearing | Requires positions and antenna coordinates; not a guaranteed coverage boundary. |

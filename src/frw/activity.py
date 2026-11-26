@@ -24,7 +24,7 @@ from .features import FeatureSettings, matches, validate_endpoint
 
 OBSERVATION_KEYS = ('icao', 'callsign', 'latitude', 'longitude', 'altitude', 'altitude_source',
     'groundspeed', 'track', 'vertical_rate', 'vr_source', 'squawk', 'on_ground',
-    'wake_vortex', 'category', 'category_typecode', 'emergency_state', 'data_source', 'field_ages')
+    'wake_vortex', 'category', 'category_typecode', 'emergency_state', 'data_source', 'field_ages', 'callsign_received')
 
 def plain(value, maximum=160):
     return ''.join(c for c in str(value) if ord(c) >= 32)[:maximum]
@@ -116,6 +116,9 @@ CREATE TABLE IF NOT EXISTS encounters(
  max_alt REAL,max_speed REAL,min_distance REAL,source TEXT);
 CREATE INDEX IF NOT EXISTS encounter_lookup ON encounters(icao,mode,last);
 CREATE INDEX IF NOT EXISTS encounter_time ON encounters(last);
+CREATE TABLE IF NOT EXISTS callsign_history(mode TEXT, callsign TEXT, last REAL NOT NULL,
+ estimated INTEGER NOT NULL, PRIMARY KEY(mode,callsign));
+CREATE INDEX IF NOT EXISTS callsign_history_time ON callsign_history(last);
 CREATE TABLE IF NOT EXISTS samples(t REAL,mode TEXT,icao TEXT,lat REAL,lon REAL,alt REAL,speed REAL,track REAL);
 CREATE INDEX IF NOT EXISTS sample_time ON samples(t);
 CREATE INDEX IF NOT EXISTS sample_aircraft ON samples(icao,mode,t);
@@ -129,7 +132,6 @@ CREATE INDEX IF NOT EXISTS alert_time ON alerts(t);
 CREATE TABLE IF NOT EXISTS runtime(bucket INTEGER,mode TEXT,frames INTEGER,rejected INTEGER,seconds REAL,
  PRIMARY KEY(bucket,mode));
 CREATE TABLE IF NOT EXISTS uploads(t INTEGER PRIMARY KEY,aircraft INTEGER);
-PRAGMA user_version=1;
 '''
 
 class HistoryStore:
@@ -145,6 +147,12 @@ class HistoryStore:
         connection.execute('PRAGMA journal_mode=DELETE')
         connection.execute('PRAGMA temp_store=MEMORY')
         connection.executescript(SCHEMA)
+        if connection.execute('PRAGMA user_version').fetchone()[0] < 2:
+            with connection:
+                connection.execute('''INSERT OR IGNORE INTO callsign_history
+                    SELECT mode,UPPER(TRIM(callsign)),MAX(last),1 FROM encounters
+                    WHERE TRIM(callsign)!='' GROUP BY mode,UPPER(TRIM(callsign))''')
+                connection.execute('PRAGMA user_version=2')
         # Reserve half of the selected history budget for the rollback journal.
         # Each transaction is bounded and no disk-based VACUUM copy is created.
         pages = max(256, (config['storage_mb'] * 1024 * 1024 // 2 - 524288) // 4096)
@@ -158,7 +166,7 @@ class HistoryStore:
         def remove_before(stamp):
             for table, field in [('sightings', 'bucket'), ('sources', 'bucket'), ('encounters', 'last'),
                                  ('samples', 't'), ('coverage', 'bucket'), ('airport_hits', 'last'),
-                                 ('alerts', 't'), ('runtime', 'bucket'), ('uploads', 't')]:
+                                 ('alerts', 't'), ('runtime', 'bucket'), ('uploads', 't'), ('callsign_history','last')]:
                 connection.execute(f'DELETE FROM {table} WHERE {field} < ?', (stamp,))
             connection.commit()
         remove_before(cutoff)
@@ -173,7 +181,8 @@ class HistoryStore:
                 SELECT MIN(t) FROM samples UNION ALL SELECT MIN(t) FROM alerts UNION ALL
                 SELECT MIN(last) FROM encounters UNION ALL SELECT MIN(bucket) FROM runtime
                 UNION ALL SELECT MIN(bucket) FROM coverage UNION ALL SELECT MIN(bucket) FROM sources
-                UNION ALL SELECT MIN(last) FROM airport_hits UNION ALL SELECT MIN(t) FROM uploads''') if r[0] is not None]
+                UNION ALL SELECT MIN(last) FROM airport_hits UNION ALL SELECT MIN(t) FROM uploads
+                UNION ALL SELECT MIN(last) FROM callsign_history''') if r[0] is not None]
             if not times:
                 break
             remove_before(min(times) + 3600)
@@ -228,6 +237,17 @@ class HistoryStore:
                 segments.append((key,current))
         for (mode, icao), entries in segments:
             latest = entries[-1][1]
+            callsign = next((row['callsign'].strip().upper() for _, row in reversed(entries)
+                             if (row.get('callsign') or '').strip()), '')
+            receptions = {}
+            for _, row in entries:
+                name = (row.get('callsign') or '').strip().upper()
+                if name and row.get('callsign_received') is not None:
+                    receptions[name] = max(row['callsign_received'], receptions.get(name, -math.inf))
+            connection.executemany('''INSERT INTO callsign_history VALUES(?,?,?,0)
+                ON CONFLICT(mode,callsign) DO UPDATE SET last=excluded.last,estimated=0
+                WHERE callsign_history.estimated=1 OR excluded.last>callsign_history.last''',
+                [(mode, name, stamp) for name, stamp in receptions.items()])
             first, last = entries[0][0], entries[-1][0]
             encounter = connection.execute('SELECT id,first,last FROM encounters WHERE icao=? AND mode=? ORDER BY last DESC LIMIT 1', (icao, mode)).fetchone()
             encounter_id = encounter['id'] if encounter and first - encounter['last'] < 1200 else uuid.uuid4().hex
@@ -241,7 +261,7 @@ class HistoryStore:
                 max_alt=MAX(COALESCE(max_alt,excluded.max_alt),COALESCE(excluded.max_alt,max_alt)),
                 max_speed=MAX(COALESCE(max_speed,excluded.max_speed),COALESCE(excluded.max_speed,max_speed)),
                 min_distance=MIN(COALESCE(min_distance,excluded.min_distance),COALESCE(excluded.min_distance,min_distance)),source=excluded.source''',
-                (encounter_id, icao, mode, first, last, latest.get('callsign', ''), len(entries), max_alt, max_speed, min_dist, latest.get('data_source', 'Unknown')))
+                (encounter_id, icao, mode, first, last, callsign, len(entries), max_alt, max_speed, min_dist, latest.get('data_source', 'Unknown')))
             last_sample = connection.execute('SELECT MAX(t) FROM samples WHERE icao=? AND mode=?', (icao, mode)).fetchone()[0] or -math.inf
             for timestamp, row in entries:
                 bucket = int(timestamp//60)*60
@@ -298,7 +318,22 @@ class HistoryStore:
                     MIN(min_distance) closest_nm FROM sightings WHERE bucket>=? AND mode=?''', args).fetchone())
                 summary.update(dict(connection.execute('''SELECT COALESCE(SUM(frames),0) frames,COALESCE(SUM(rejected),0) rejected,
                     COALESCE(SUM(seconds),0) receiving_seconds FROM runtime WHERE bucket>=? AND mode=?''', args).fetchone()))
-                encounters = rows('SELECT * FROM encounters WHERE last>=? AND mode=? ORDER BY last DESC LIMIT 500', (cutoff, mode))
+                encounters = rows('''WITH page AS (
+                    SELECT * FROM encounters WHERE last>=? AND mode=? ORDER BY last DESC,id LIMIT 500
+                ), totals AS (
+                    SELECT aircraft.icao,COUNT(*) times_seen FROM (SELECT DISTINCT icao FROM page) aircraft
+                    JOIN encounters history ON history.icao=aircraft.icao AND history.mode=? GROUP BY aircraft.icao
+                )
+                SELECT page.*,calls.last callsign_last_seen,calls.estimated callsign_last_seen_estimated,totals.times_seen
+                FROM page JOIN totals USING(icao) LEFT JOIN callsign_history calls
+                    ON calls.mode=page.mode AND calls.callsign=UPPER(TRIM(page.callsign))
+                ORDER BY page.last DESC,page.id''', (cutoff, mode, mode))
+                today = dt.date.fromtimestamp(now)
+                for encounter in encounters:
+                    stamp = encounter['callsign_last_seen']
+                    encounter['days_ago'] = (today - dt.date.fromtimestamp(stamp)).days if stamp is not None else None
+                    if stamp is not None:
+                        encounter['callsign_last_seen'] = dt.datetime.fromtimestamp(stamp).astimezone().isoformat(timespec='seconds')
                 summary['encounters'] = connection.execute('SELECT COUNT(*) FROM encounters WHERE last>=? AND mode=?', (cutoff, mode)).fetchone()[0]
                 summary['upload_aircraft_reports'] = connection.execute('SELECT COALESCE(SUM(aircraft),0) FROM uploads WHERE t>=?', (cutoff,)).fetchone()[0] if mode == 'live' else 0
                 chart_width = 60 if hours <= 1 else 3600 if hours <= 48 else 86400

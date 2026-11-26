@@ -57,6 +57,14 @@ class AircraftDetailTests(unittest.TestCase):
         with patch('frw.aircraft.time.time',return_value=now):
             return self.aircraft.detail(ICAO)
 
+    def test_only_identity_messages_advance_callsign_reception(self):
+        observations = []
+        self.aircraft.observer = lambda row, stamp: observations.append(row)
+        for offset, frame in enumerate((identity(), position(10000), identity())):
+            self.aircraft.frame(frame, EPOCH+offset)
+        self.assertEqual([row.get('callsign_received') for row in observations], [EPOCH,None,EPOCH+2])
+        self.assertEqual(observations[0]['callsign'], observations[1]['callsign'])
+
     def test_altitude_sources_remain_separate_and_alias_prefers_baro(self):
         self.aircraft.frame(position(35000),EPOCH)
         self.aircraft.frame(position(3000,gnss=True),EPOCH+10)
