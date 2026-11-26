@@ -7,6 +7,9 @@ work/*
 !work/source-delivery/
 **/settings.json
 **/features.json
+**/waypoints.json
+**/updates.json
+**/updates/
 **/sharing-key*
 **/alert-secrets*
 **/airspace.sqlite3*

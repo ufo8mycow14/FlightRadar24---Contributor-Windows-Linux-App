@@ -21,6 +21,8 @@ from .display import (DISPLAY_DEFAULT, bearing_suffix, display_bearing, distance
     is_emergency, quick_match, sort_rows)
 from .native_symbols import AircraftSymbolGuide
 from .native_updates import UpdateManager, UpdateDialog
+from .waypoints import WaypointStore
+from .native_waypoints import WaypointDialog
 from .native_features import FeatureModel, FilterDialog, StatisticsPage, AlertsPage, FeaturePreferences, describe
 from .native_support import HelpDialog, PracticeDialog, AboutDialog
 from .support import support_summary
@@ -141,6 +143,8 @@ class FlightRadarWindow(QMainWindow):
         self.resize(1440, 960)
         self.setMinimumSize(920, 650)
         self._build()
+        self.waypoint_store = WaypointStore(receiver.settings.directory)
+        self.map.set_waypoint_catalog(self.waypoint_store.catalog())
         if self.feature_model:
             self.feature_model.changed.connect(self._features_changed)
             self.feature_model.notice.connect(self.notice)
@@ -364,6 +368,13 @@ class FlightRadarWindow(QMainWindow):
             menu.addAction(action)
         action = QAction('Aircraft symbol guide…', self)
         action.triggered.connect(lambda: AircraftSymbolGuide(self).exec())
+        menu.addAction(action)
+        self._waypoints_action = QAction('Aviation waypoints', self, checkable=True)
+        self._waypoints_action.triggered.connect(self._toggle_waypoints)
+        menu.addAction(self._waypoints_action)
+        self.map.waypointsToggled.connect(self._toggle_waypoints)
+        action = QAction('Aviation waypoint data…', self)
+        action.triggered.connect(self.open_waypoint_data)
         menu.addAction(action)
         menu.addSeparator()
         self._table_action = QAction('Aircraft list', self, checkable=True, checked=True)
@@ -636,6 +647,7 @@ class FlightRadarWindow(QMainWindow):
             self.preset_combo.addItem(preset['name'],preset['filter'])
         self.preset_combo.blockSignals(False)
         self.map.set_display(self._display())
+        self._waypoints_action.setChecked(self._display()['aviation_waypoints'])
         self._update_table_headers()
         if self.selected and self.selected not in {r['icao'] for r in self.visible_rows()}:
             self.clear_selection()
@@ -643,6 +655,26 @@ class FlightRadarWindow(QMainWindow):
 
     def edit_filters(self):
         FilterDialog(self.feature_model,self).exec()
+
+    def _toggle_waypoints(self, enabled):
+        if (not self.feature_model or not self.feature_model.loaded or self.feature_model.pending or
+                self.feature_preferences.has_unsaved_changes()):
+            self.map.set_display(self._display())
+            self._waypoints_action.setChecked(self._display()['aviation_waypoints'])
+            self.statusBar().showMessage('Save pending display/settings changes before toggling waypoints.',10000)
+            return
+        display = {**self._display(), 'aviation_waypoints':bool(enabled)}
+        def saved():
+            self.feature_preferences.display_waypoints.setChecked(bool(enabled))
+        self.feature_model.save({'display':display},on_saved=saved)
+        # The controls follow the saved value when the operation completes.
+        self.map.set_display(self._display())
+        self._waypoints_action.setChecked(self._display()['aviation_waypoints'])
+
+    def open_waypoint_data(self):
+        dialog = WaypointDialog(self.waypoint_store,self)
+        dialog.catalogChanged.connect(self.map.set_waypoint_catalog)
+        dialog.exec()
 
     def choose_preset(self,index):
         criteria=self.preset_combo.itemData(index)

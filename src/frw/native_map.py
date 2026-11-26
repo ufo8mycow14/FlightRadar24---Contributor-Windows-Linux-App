@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from collections import OrderedDict
+import html
 import math
 import time
 
@@ -71,6 +72,10 @@ class _MapCanvas(QWidget):
         self.conflicts = {}
         self._hover_icao = ''
         self._hover_point = None
+        self._hover_waypoint = None
+        self.waypoint_catalog = None
+        self._waypoint_markers = []
+        self._waypoint_count = 0
         self.station = None
         self.selected = ''
         self.banner_left = 10
@@ -233,6 +238,7 @@ class _MapCanvas(QWidget):
                     painter.drawRect(box)
         self._needed = needed
         painter.setClipRect(self.rect())
+        self._draw_waypoints(painter)
         for row in sorted(self.rows, key=lambda row: row.get('icao') == self.selected):
             chosen = row.get('icao') == self.selected
             trail = [point for point in row.get('trail', [])
@@ -310,9 +316,62 @@ class _MapCanvas(QWidget):
         self._draw_scale(painter)
         self._draw_compass(painter)
         painter.end()
-        if self._hover_icao:
+        if self._hover_icao or self._hover_waypoint:
             self._refresh_hover()
         self._pump_tiles()
+
+    def _draw_waypoints(self, painter):
+        self._waypoint_markers = []
+        self._waypoint_count = 0
+        catalog = self.waypoint_catalog
+        if not self.display.get('aviation_waypoints', False) or catalog is None or self.zoom < 7:
+            return
+        half_x, half_y = (self.width()/2+40)/self.world_size, (self.height()/2+40)/self.world_size
+        west, east = (self.center.x()-half_x)*360-180, (self.center.x()+half_x)*360-180
+        latitude = lambda y: math.degrees(math.atan(math.sinh(math.pi*(1-2*max(0,min(1,y))))))
+        south, north = latitude(self.center.y()+half_y), latitude(self.center.y()-half_y)
+        painter.save()
+        painter.setFont(QFont('Segoe UI', 8))
+        occupied, cells = [], set()
+        aircraft_bounds = [QRectF(p.x()-30,p.y()-30,60,60) for p in
+                           (self._screen(r['latitude'],r['longitude']) for r in self.rows)]
+        visible = list(catalog.visible(west,south,east,north))
+        visible.sort(key=lambda p:(p.ident,p.latitude,p.longitude))
+        for waypoint in visible:
+            point = self._screen(waypoint.latitude,waypoint.longitude)
+            if not QRectF(self.rect()).contains(point) or point.y() > self.height()-self.bottom_reserved-10:
+                continue
+            self._waypoint_count += 1
+            cell = (int(point.x()//14),int(point.y()//14))
+            if cell in cells or len(self._waypoint_markers) >= 1500:
+                continue
+            cells.add(cell)
+            painter.setPen(QPen(QColor('#72508f'),1.3))
+            painter.setBrush(QColor('#fbf6ff'))
+            painter.drawPolygon(QPolygonF([point+QPointF(0,-5),point+QPointF(-4.5,3.5),point+QPointF(4.5,3.5)]))
+            box = QRectF()
+            if self.zoom >= 8 and len(occupied) < 220:
+                width = painter.fontMetrics().horizontalAdvance(waypoint.ident)+6
+                candidate = QRectF(point.x()+7,point.y()-8,width,painter.fontMetrics().height()+2)
+                if (candidate.right()<self.width()-50 and candidate.top()>72 and
+                        candidate.bottom()<self.height()-self.bottom_reserved-12 and
+                        not any(candidate.intersects(other) for other in occupied+aircraft_bounds)):
+                    box = candidate
+                    painter.fillRect(box,QColor(255,250,255,215))
+                    painter.setPen(QColor('#613582'))
+                    painter.drawText(box,Qt.AlignmentFlag.AlignCenter,waypoint.ident)
+                    occupied.append(box.adjusted(-4,-3,4,3))
+            self._waypoint_markers.append((waypoint,point,box))
+        painter.restore()
+
+    def _hit_waypoint(self, position):
+        if not self.display.get('aviation_waypoints',False):
+            return None
+        for waypoint, point, box in reversed(self._waypoint_markers):
+            delta = position-point
+            if delta.x()**2+delta.y()**2 <= 64 or box.contains(position):
+                return waypoint
+        return None
 
     def _draw_range_rings(self, painter):
         """Dotted 50-unit range rings around the antenna, replacing the old radar box."""
@@ -448,10 +507,12 @@ class _MapCanvas(QWidget):
             event.accept()
         else:
             hit = self._hit_aircraft(event.position())
-            if self._hover_icao and hit != self._hover_icao:
+            waypoint = self._hit_waypoint(event.position())
+            if ((self._hover_icao and hit != self._hover_icao) or
+                    (self._hover_waypoint and waypoint != self._hover_waypoint)):
                 self._hide_hover()
             self._hover_point = event.position()
-            self.setCursor(Qt.CursorShape.PointingHandCursor if hit else Qt.CursorShape.OpenHandCursor)
+            self.setCursor(Qt.CursorShape.PointingHandCursor if hit or waypoint else Qt.CursorShape.OpenHandCursor)
             super().mouseMoveEvent(event)
 
     def _hit_aircraft(self, position):
@@ -462,21 +523,34 @@ class _MapCanvas(QWidget):
         return ''
 
     def _hide_hover(self):
-        if self._hover_icao:
+        if self._hover_icao or self._hover_waypoint:
             QToolTip.hideText()
         self._hover_icao = ''
+        self._hover_waypoint = None
         self._hover_point = None
 
     def _refresh_hover(self):
-        if self._press is not None or not self.display.get('aircraft_hover', True) or self._hover_point is None:
+        if self._press is not None or self._hover_point is None:
             self._hide_hover()
             return
         icao = self._hit_aircraft(self._hover_point)
-        row = next((r for r in self.rows if r.get('icao') == icao), None)
+        row = next((r for r in self.rows if r.get('icao') == icao), None) if self.display.get('aircraft_hover',True) else None
+        waypoint = self._hit_waypoint(self._hover_point) if not icao else None
+        if row is None and waypoint and self.waypoint_catalog:
+            self._hover_icao = ''
+            self._hover_waypoint = waypoint
+            catalog = self.waypoint_catalog
+            text = (f'<b>{html.escape(waypoint.ident)}</b> · Aviation waypoint<br>'
+                    f'{waypoint.latitude:.6f}, {waypoint.longitude:.6f}<br>'
+                    f'{html.escape(catalog.caption)}<br>Source: {html.escape(catalog.source)}<br>'
+                    'Reference only · not for navigation')
+            QToolTip.showText(self.mapToGlobal(self._hover_point.toPoint()),text,self)
+            return
         if row is None or (self._hover_icao and self._hover_icao != icao):
             self._hide_hover()
             return
         self._hover_icao = icao
+        self._hover_waypoint = None
         alert = self.conflicts.get(icao) if self.display.get('conflict_enabled', True) else None
         QToolTip.showText(self.mapToGlobal(self._hover_point.toPoint()),
                          aircraft_hover_html(row, self.display, self.station, alert), self)
@@ -542,6 +616,7 @@ class _MapCanvas(QWidget):
 class NativeMap(QWidget):
     """Worldwide native tile map; received positions are independent of tile access."""
     aircraftSelected = Signal(str)
+    waypointsToggled = Signal(bool)
 
     def __init__(self, parent=None, cache_dir=None):
         super().__init__(parent)
@@ -567,8 +642,11 @@ class NativeMap(QWidget):
         self.zoom_out = QPushButton('−')
         self.home_button = QPushButton('◎')
         self.fit_button = QPushButton('⛶')
+        self.waypoint_button = QPushButton('WPT')
+        self.waypoint_button.setCheckable(True)
         for button, label in ((self.zoom_in, 'Zoom in'), (self.zoom_out, 'Zoom out'),
-                              (self.home_button, 'Centre on antenna'), (self.fit_button, 'Fit aircraft')):
+                              (self.home_button, 'Centre on antenna'), (self.fit_button, 'Fit aircraft'),
+                              (self.waypoint_button, 'Show or hide aviation waypoints')):
             button.setAccessibleName(label)
             button.setToolTip(label)
             button.setFixedSize(38, 38)
@@ -581,6 +659,11 @@ class NativeMap(QWidget):
         self.zoom_in.clicked.connect(lambda: self.canvas.zoom_at(1))
         self.home_button.clicked.connect(self.center_home)
         self.fit_button.clicked.connect(self.fit_aircraft)
+        self.waypoint_button.clicked.connect(lambda checked: self.waypointsToggled.emit(checked))
+        self.waypoint_info = QLabel(self.canvas)
+        self.waypoint_info.setObjectName('mapChip')
+        self.waypoint_info.setTextFormat(Qt.TextFormat.PlainText)
+        self.waypoint_info.hide()
         self.canvas.aircraftSelected.connect(self.aircraftSelected.emit)
         self.home_button.setEnabled(False)
         self.fit_button.setEnabled(False)
@@ -655,11 +738,17 @@ class NativeMap(QWidget):
             self.summary.move(free_x, 10)
             self.summary.setFixedWidth(min(560, free_width))
             self.summary.setFixedHeight(28)
+        self.waypoint_info.setVisible(free_width >= 240 and self.canvas.display.get('aviation_waypoints',False))
+        self.waypoint_info.move(free_x,42)
+        self.waypoint_info.setFixedWidth(min(560,max(240,free_width)))
+        self.waypoint_info.setFixedHeight(26)
+        self.waypoint_info.raise_()
         for widget, anchor in self._overlays:
             if anchor == 'top-message':
                 widget.setFixedWidth(max(120, min(760, width - free_x - 20)))
                 widget.adjustSize()
-                widget.move(free_x + max(0, (free_width - widget.width()) // 2), 46)
+                message_y = 74 if not self.waypoint_info.isHidden() else 46
+                widget.move(free_x + max(0, (free_width - widget.width()) // 2), message_y)
         self._controls.adjustSize()
         usable_height = max(120, height - bottom_reserved)
         self._controls.move(width - self._controls.width() - 10,
@@ -714,7 +803,23 @@ class NativeMap(QWidget):
         self.canvas.update()
 
     def set_display(self, display):
+        before = self.canvas.display.get('aviation_waypoints',False)
         self.canvas.display = {**DISPLAY_DEFAULT, **(display or {})}
+        enabled = self.canvas.display.get('aviation_waypoints',False)
+        self.waypoint_button.setChecked(enabled)
+        if before and not enabled:
+            self.canvas._waypoint_markers = []
+            self.canvas._hide_hover()
+        self._position_overlays()
+        self.canvas.update()
+
+    def set_waypoint_catalog(self, catalog):
+        self.canvas._hide_hover()
+        self.canvas.waypoint_catalog = catalog
+        self.canvas._waypoint_markers = []
+        self.waypoint_info.setText('WPT · '+catalog.caption+' · zoom in for labels')
+        self.waypoint_info.setToolTip(f'{catalog.title} · {len(catalog.points):,} points\nSource: {catalog.source}\nReference only; not for navigation.')
+        self.waypoint_button.setToolTip('Show or hide aviation waypoints\n'+catalog.caption+'\nView → Aviation waypoint data to change source')
         self.canvas.update()
 
     def center_home(self):

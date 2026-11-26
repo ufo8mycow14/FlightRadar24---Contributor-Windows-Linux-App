@@ -1368,5 +1368,39 @@
       "start",
       "map"
     ]
+  },
+  {
+    "id": "waypoints",
+    "category": "Map and aircraft",
+    "title": "Aviation waypoints on the map",
+    "summary": "Show or hide an Australian reference layer, inspect points, or import your own newer waypoint data.",
+    "sections": [
+      {
+        "heading": "Show or hide waypoints",
+        "steps": [
+          "Click WPT on the map or View → Aviation waypoints. The on/off choice is saved and starts off. Save pending settings before using the quick toggle.",
+          "Zoom in to see small purple triangles and identifiers; labels thin out to limit overlap. Hover for coordinates, source and date. Aircraft retain hover and selection priority. Waypoints do not establish an aircraft’s intended route."
+        ]
+      },
+      {
+        "heading": "Reference date and coverage",
+        "paragraphs": [
+          "The bundle contains 5,185 Australia-region historical fixes from cycle October 2013, including Tasmania and nearby offshore/island areas. The date is shown on the map whenever the layer is enabled. This is not current AIRAC data and is not for navigation.",
+          "The source is Robin A. Peel / FlightGear, GPL version 2 or later. Original notice, exact source URL/hash and geographic subset details are included in the bundled JSON; the GPL text is included alongside it."
+        ]
+      },
+      {
+        "heading": "Import a newer file",
+        "steps": [
+          "Open View → Aviation waypoint data. Enter the source cycle/date if known and choose Import waypoint file. Import only data you are entitled to use. The date is user supplied, not verified.",
+          "Use UTF-8 CSV with ident,latitude,longitude columns and decimal degrees, or X-Plane/FlightGear fix.dat/.dat.gz (600/1100/1101/1200 formats). Files are limited to 12 MB after decompression and 100,000 records. Invalid coordinates/files leave the previous data intact.",
+          "The imported layer replaces the selected reference. Use historical reference and Use last import switch between them. Imported data stays in the local profile and is never uploaded; program updates retain it."
+        ]
+      }
+    ],
+    "related": [
+      "map",
+      "updates"
+    ]
   }
 ]

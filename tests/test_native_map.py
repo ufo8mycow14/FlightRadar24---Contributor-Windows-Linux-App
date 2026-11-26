@@ -43,6 +43,39 @@ class NativeMapTests(unittest.TestCase):
         self.map.deleteLater()
         self.app.processEvents()
 
+    def test_waypoints_toggle_zoom_hover_and_aircraft_priority(self):
+        from frw.waypoints import WaypointCatalog
+        canvas=self.map.canvas
+        self.map.set_waypoint_catalog(WaypointCatalog({'cycle':'Fixture date','source':'<source>',
+            'points':[['TESTA',0,0],['TESTB',0,.2]]}))
+        canvas.set_center(0,0,9)
+        self.map.set_display({'aviation_waypoints':False})
+        self.map.grab()
+        self.assertEqual(canvas._waypoint_markers,[])
+        self.map.set_display({'aviation_waypoints':True,'aircraft_hover':False})
+        self.map.grab()
+        self.assertEqual(len(canvas._waypoint_markers),2)
+        self.assertTrue(self.map.waypoint_button.isChecked())
+        self.assertIn('Fixture date',self.map.waypoint_info.text())
+        canvas._hover_point=canvas._screen(0,0)
+        with patch('frw.native_map.QToolTip.showText') as tooltip:
+            canvas._refresh_hover()
+            self.assertIn('TESTA',tooltip.call_args.args[1])
+            self.assertIn('&lt;source&gt;',tooltip.call_args.args[1])
+        canvas.rows=[{'icao':'ABC001','latitude':0,'longitude':0,'track':90}]
+        self.map.set_display({'aviation_waypoints':True,'aircraft_hover':True})
+        self.map.grab()
+        canvas._hover_point=canvas._screen(0,0)
+        with patch('frw.native_map.QToolTip.showText') as tooltip:
+            canvas._refresh_hover()
+            self.assertIn('ABC001',tooltip.call_args.args[1])
+            self.assertNotIn('Aviation waypoint',tooltip.call_args.args[1])
+        canvas.set_center(0,0,6)
+        self.map.grab()
+        self.assertEqual(canvas._waypoint_markers,[])
+        self.map.set_display({'aviation_waypoints':False})
+        self.assertIsNone(canvas._hit_waypoint(canvas._screen(0,0)))
+
     def test_emergency_aircraft_flashes_and_steady_red_option(self):
         canvas = self.map.canvas
         canvas.rows = [dict(icao='E00001', latitude=0, longitude=.1, track=90, squawk='7700', trail=[]),

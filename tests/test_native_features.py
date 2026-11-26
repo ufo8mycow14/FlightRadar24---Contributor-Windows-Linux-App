@@ -12,12 +12,12 @@ ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'work/applibs'),str(ROOT/'work/desktoplibs')]
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
 from PySide6.QtCore import QCoreApplication,QEvent,Qt,QSettings
-from PySide6.QtWidgets import QApplication,QDialog
+from PySide6.QtWidgets import QApplication,QDialog,QStyledItemDelegate
 from frw.activity import AlertEngine
 from frw.config import Settings
 from frw.desktop import FlightRadarWindow
 from frw.features import FEATURE_DEFAULT,FILTER_DEFAULT
-from frw.native_features import AirportDialog,FilterEditor,RuleDialog
+from frw.native_features import AirportDialog,FilterEditor,RuleDialog,table,fill_table
 from frw.native_map import _MapCanvas
 from frw.runtime import Receiver
 
@@ -168,5 +168,51 @@ class NativeFeatureTests(unittest.TestCase):
         self.assertEqual(saved['map_label_fields'],['icao','track'])
         self.assertFalse(saved['aircraft_hover']);self.assertFalse(saved['conflict_enabled'])
         self.assertEqual(self.window.feature_model.value['delivery'],before['delivery'])
+
+    def test_waypoint_quick_toggle_persists_and_respects_pending_edits(self):
+        window=self.window
+        self.assertFalse(window._display()['aviation_waypoints'])
+        window.map.waypoint_button.click()
+        self.wait(lambda:not window.feature_model.pending)
+        self.assertTrue(window._display()['aviation_waypoints'])
+        self.assertTrue(window.map.waypoint_button.isChecked())
+        self.assertTrue(window._waypoints_action.isChecked())
+        self.assertTrue(window.feature_preferences.display_waypoints.isChecked())
+        self.assertFalse(window.feature_preferences.has_unsaved_changes())
+        window.feature_preferences.display_hover.setChecked(False)
+        window._waypoints_action.trigger()
+        self.assertTrue(window._display()['aviation_waypoints'])
+        window.feature_preferences.display_hover.setChecked(True)
+        window.map.waypoint_button.click()
+        self.wait(lambda:not window.feature_model.pending)
+        self.assertFalse(window.map.waypoint_button.isChecked())
+
+    def test_statistics_refresh_measures_columns_once_and_preserves_cells(self):
+        class CountingDelegate(QStyledItemDelegate):
+            calls = 0
+            def sizeHint(self, option, index):
+                self.calls += 1
+                return super().sizeHint(option, index)
+        view = table(['Aircraft', 'Messages', 'Source', 'Date'])
+        delegate = CountingDelegate(view)
+        view.setItemDelegate(delegate)
+        view.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
+        view.resize(1000, 700);view.show();self.app.processEvents()
+        fields = ['name', 'messages', 'source', 'stamp']
+        rows = [dict(name=f'TEST{i}', messages=i, source='ADS-B', stamp='Fixture date') for i in range(100)]
+        try:
+            fill_table(view, rows, fields);self.app.processEvents()
+            original = view.item(0, 0)
+            view.selectRow(10)
+            delegate.calls = 0
+            fill_table(view, [{**row, 'messages':row['messages']+1} for row in rows], fields)
+            self.app.processEvents()
+            self.assertLess(delegate.calls, len(rows)*len(fields)*4)
+            self.assertIs(view.item(0, 0), original)
+            self.assertEqual(view.item(99, 1).text(), '100')
+            self.assertEqual(view.currentRow(), 10)
+            self.assertTrue(view.updatesEnabled())
+        finally:
+            view.close();view.deleteLater();self.app.processEvents()
 
 if __name__=='__main__':unittest.main()

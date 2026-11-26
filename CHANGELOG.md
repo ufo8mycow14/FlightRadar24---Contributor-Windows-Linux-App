@@ -1,5 +1,12 @@
 # Changes
 
+## 0.8.1
+
+- Fixed Statistics tab freezes: table refreshes batch column sizing and retain unchanged cells instead of repeatedly recalculating widths for every cell.
+- Added a saved aviation-waypoint layer switch in View and a compact WPT map button, with named purple markers, zoom decluttering and hover details.
+- Bundled 5,185 Australia-region historical fixes from October 2013 under GPL-2.0-or-later, with source/date shown on the map. This is a reference layer, not current AIRAC or navigation data.
+- View → Aviation waypoint data imports newer local CSV or X-Plane/FlightGear fix files and switches between the bundled reference and the last import. Invalid imports preserve the previous data; imported files stay in the local profile.
+
 ## 0.8.0
 
 - Added native GitHub update controls: manual checks/download/install, automatic checks every 12 hours while running, and overdue startup checks. Automatic installation is optional and off by default.

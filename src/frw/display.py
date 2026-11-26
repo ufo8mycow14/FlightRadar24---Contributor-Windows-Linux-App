@@ -18,6 +18,7 @@ DISPLAY_DEFAULT = {
     'map_labels': 'callsign',     # legacy presets or custom
     'map_label_fields': ['callsign', 'altitude', 'groundspeed'],
     'aircraft_hover': True,
+    'aviation_waypoints': False,
     'conflict_enabled': True,
     'conflict_flash': True,
     'range_rings': True,          # station-centred range rings on the map
@@ -52,7 +53,7 @@ def validate_display(value):
         raise ConfigError('Choose aviation or metric display units.')
     if c['map_labels'] not in MAP_LABELS:
         raise ConfigError('Choose a map label style.')
-    for key in ('range_rings', 'follow_selected', 'cardinals', 'emergency_flash', 'aircraft_hover', 'conflict_enabled', 'conflict_flash'):
+    for key in ('range_rings', 'follow_selected', 'cardinals', 'emergency_flash', 'aircraft_hover', 'conflict_enabled', 'conflict_flash', 'aviation_waypoints'):
         if type(c[key]) is not bool:
             raise ConfigError(key + ' must be true or false.')
     fields = c['map_label_fields']

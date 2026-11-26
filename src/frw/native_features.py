@@ -50,19 +50,38 @@ def table(headers):
 
 def fill_table(target, rows, fields):
     selected = target.currentRow()
+    header = target.horizontalHeader()
+    modes = [header.sectionResizeMode(i) for i in range(target.columnCount())]
+    updates, sorting = target.updatesEnabled(), target.isSortingEnabled()
     target.setUpdatesEnabled(False)
-    target.setRowCount(len(rows))
-    for i, row in enumerate(rows):
-        for j, field in enumerate(fields):
-            value = row.get(field)
-            if field in ('first', 'last', 'time'):
-                value = clock(value)
-            item = QTableWidgetItem(display(value))
-            item.setToolTip(item.text())
-            target.setItem(i, j, item)
-    if 0 <= selected < len(rows):
-        target.selectRow(selected)
-    target.setUpdatesEnabled(True)
+    target.setSortingEnabled(False)
+    # ResizeToContents otherwise scans the whole column for every cell change,
+    # blocking the GUI for large encounter histories even with painting disabled.
+    for i in range(target.columnCount()):
+        header.setSectionResizeMode(i, QHeaderView.ResizeMode.Fixed)
+    try:
+        target.setRowCount(len(rows))
+        for i, row in enumerate(rows):
+            for j, field in enumerate(fields):
+                value = row.get(field)
+                if field in ('first', 'last', 'time'):
+                    value = clock(value)
+                text = display(value)
+                item = target.item(i, j)
+                if item is None:
+                    item = QTableWidgetItem(text)
+                    item.setToolTip(text)
+                    target.setItem(i, j, item)
+                elif item.text() != text:
+                    item.setText(text)
+                    item.setToolTip(text)
+        if 0 <= selected < len(rows):
+            target.selectRow(selected)
+    finally:
+        for i, mode in enumerate(modes):
+            header.setSectionResizeMode(i, mode)
+        target.setSortingEnabled(sorting)
+        target.setUpdatesEnabled(updates)
 
 def describe(criteria):
     parts = []
@@ -572,6 +591,7 @@ class FeaturePreferences(QScrollArea):
         self.display_conflict_flash=QCheckBox('Flash estimated conflicts');displayform.addRow(self.display_conflict_flash)
         displayform.addRow(label('Yellow/red estimates need fresh position, pressure altitude and motion data. They are not TCAS or navigation guidance. Height above terrain is unavailable.'))
         self.display_rings=QCheckBox('Show range rings around my antenna on the map');displayform.addRow(self.display_rings)
+        self.display_waypoints=QCheckBox('Show aviation waypoints (View → Aviation waypoint data selects the source)');displayform.addRow(self.display_waypoints)
         self.display_follow=QCheckBox('Keep the selected aircraft centred on the map');displayform.addRow(self.display_follow)
         self.display_cardinals=QCheckBox('Show compass and N/E/S/W cardinal labels');displayform.addRow(self.display_cardinals)
         self.display_flash=QCheckBox('Flash emergency aircraft red on the map (off = steady red)');displayform.addRow(self.display_flash)
@@ -640,6 +660,7 @@ class FeaturePreferences(QScrollArea):
             for key,control in self.label_fields.items():control.setChecked(key in selected)
             self.display_hover.setChecked(display.get('aircraft_hover',True));self.display_conflict.setChecked(display.get('conflict_enabled',True));self.display_conflict_flash.setChecked(display.get('conflict_flash',True))
             self.display_rings.setChecked(bool(display.get('range_rings',True)));self.display_follow.setChecked(bool(display.get('follow_selected',False)))
+            self.display_waypoints.setChecked(bool(display.get('aviation_waypoints',False)))
             self.display_cardinals.setChecked(bool(display.get('cardinals',True)));self.display_flash.setChecked(bool(display.get('emergency_flash',True)))
             self.display_north.setCurrentIndex(max(0,self.display_north.findData(display.get('north_reference','true'))))
             self.display_variation.setValue(float(display.get('magnetic_variation',0) or 0))
@@ -651,7 +672,7 @@ class FeaturePreferences(QScrollArea):
     def save(self):
         changes={key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in FEATURE_DEFAULT}
         changes['history_enabled']=self.history.isChecked()
-        changes['display']={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),'map_label_fields':[key for key,control in self.label_fields.items() if control.isChecked()],'aircraft_hover':self.display_hover.isChecked(),'conflict_enabled':self.display_conflict.isChecked(),'conflict_flash':self.display_conflict_flash.isChecked(),'range_rings':self.display_rings.isChecked(),'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),'emergency_flash':self.display_flash.isChecked(),'north_reference':self.display_north.currentData(),'magnetic_variation':self.display_variation.value()}
+        changes['display']=self.current_display()
         delivery=copy.deepcopy(self.model.value['delivery'])
         delivery.update({key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in delivery})
         delivery.update(email_enabled=self.email_enabled.isChecked(),webhook_enabled=self.webhook_enabled.isChecked(),smtp_tls=self.tls.currentData(),webhook_kind=self.webkind.currentData())
@@ -673,6 +694,7 @@ class FeaturePreferences(QScrollArea):
                  'map_label_fields':[key for key,control in self.label_fields.items() if control.isChecked()],
                  'aircraft_hover':self.display_hover.isChecked(),'conflict_enabled':self.display_conflict.isChecked(),
                  'conflict_flash':self.display_conflict_flash.isChecked(),'range_rings':self.display_rings.isChecked(),
+                 'aviation_waypoints':self.display_waypoints.isChecked(),
                  'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),
                  'emergency_flash':self.display_flash.isChecked(),'north_reference':self.display_north.currentData(),
                  'magnetic_variation':self.display_variation.value()}

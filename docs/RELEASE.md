@@ -1,12 +1,12 @@
 # Windows download and source files
 
-[Download the Windows x64 installer](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.8.0/FlightRadar24-0.8.0-Windows-x64-Setup.exe)
+[Download the Windows x64 installer](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.8.1/FlightRadar24-0.8.1-Windows-x64-Setup.exe)
 
-Version 0.8.0 is a native Windows desktop application. It needs no Python installation, browser, Raspberry Pi or Linux virtual machine. Linux remains a source/build target awaiting native verification; macOS is deferred.
+Version 0.8.1 is a native Windows desktop application. It needs no Python installation, browser, Raspberry Pi or Linux virtual machine. Linux remains a source/build target awaiting native verification; macOS is deferred.
 
 ## Install and start
 
-1. Download `FlightRadar24-0.8.0-Windows-x64-Setup.exe` from [Releases](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.8.0).
+1. Download `FlightRadar24-0.8.1-Windows-x64-Setup.exe` from [Releases](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.8.1).
 2. Run setup. The app and supported USB driver components are included. An existing healthy WinUSB binding is preserved. Windows elevation and driver-signature checks still apply.
 3. If you want to send received aircraft to Flightradar24, select **Install optional Flightradar24 sharing**. Setup downloads its unchanged component from `repo-feed.flightradar24.com` over HTTPS and checks both the archive and executable against pinned SHA-256 values. This step needs internet access and Windows `tar.exe` (included with Windows 10 version 1803 and later).
 4. Open **FlightRadar24** from the Start menu. Configure your source and actual antenna location in **Receiver settings**, save, then start reception. F1 opens the offline guide.
@@ -20,10 +20,10 @@ The installer is unsigned. Check the file name, download location and published 
 
 | File | Purpose |
 | --- | --- |
-| `FlightRadar24-0.8.0-Windows-x64-Setup.exe` | App, receiver runtime, notices and offline driver setup, with optional vendor sharing download. |
-| `FlightRadar24-0.8.0-source.zip` | Project source, tests, installer source, current native patches and build instructions. |
-| `FlightRadar24-0.8.0-corresponding-source.zip` | Exact dependency source archives, the app source ZIP, helper source/overlays, notices and source index. |
-| `FlightRadar24-0.8.0-Windows-x64-Portable.zip` | Extract-and-run receiver; USB drivers and optional sharing require the installer. |
+| `FlightRadar24-0.8.1-Windows-x64-Setup.exe` | App, receiver runtime, notices and offline driver setup, with optional vendor sharing download. |
+| `FlightRadar24-0.8.1-source.zip` | Project source, tests, installer source, current native patches and build instructions. |
+| `FlightRadar24-0.8.1-corresponding-source.zip` | Exact dependency source archives, the app source ZIP, helper source/overlays, notices and source index. |
+| `FlightRadar24-0.8.1-Windows-x64-Portable.zip` | Extract-and-run receiver; USB drivers and optional sharing require the installer. |
 | `SHA256SUMS.txt` | SHA-256 digests for the four release files. |
 
 All source downloads are available at no charge from the same release page. Sources and binaries retain their own licences. The source archive contains the upstream decoder plus the current Windows patch, Blink plus its current Windows patch, terminal-supervisor/guest-helper source, complete libwdi source/overlays, Cygwin, GCC runtime source package, pyModeS, pyserial, PyInstaller, PySide/Shiboken, QtBase, QtSvg and QtImageFormats. The selected Qt libraries/plugins remain separate replaceable DLLs; the package does not use Qt WebEngine.
@@ -38,7 +38,9 @@ Support → Software updates offers manual installation and optional automatic i
 
 ## Verification scope
 
-This release adds original aircraft-category silhouettes and sizes, including helicopters, with an offline symbol guide and category names on hover. Missing or reserved categories use a directional marker. Selection and warning colours are retained.
+This release adds an optional aviation-waypoint layer, saved WPT/View controls, hover details and local file imports. The bundled Australia-region fixes are historical cycle 2013.10, with provenance and GPL licence included. They are not current AIRAC data or navigation guidance. Aircraft silhouettes, selection and warning colours are retained.
+
+Statistics table refreshes now batch column sizing and reuse unchanged cells, fixing long interface stalls when switching tabs with populated encounter history.
 
 Version 0.7.0 introduced per-field aircraft labels, live hover details, and yellow/red estimated-conflict warnings on both aircraft. Conflict tests exercise simultaneous horizontal/vertical proximity, stale or missing observations, ground exclusion, different crossing times, altitude bands and date-line/polar geometry. Native tests cover warning priority, filtering, expiry, label controls and hover selection. These estimates are not TCAS or navigation guidance; see [the method and primary references](CONFLICT-ALERTS.md).
 

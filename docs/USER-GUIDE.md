@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.8.0 · Kieran O'Rourke
+Version 0.8.1 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -36,6 +36,7 @@ All example aircraft, coordinates and delivery addresses are dummy data. Practic
 - [Glossary and units](#glossary)
 - [About, licence and project](#about)
 - [Software updates from GitHub](#updates)
+- [Aviation waypoints on the map](#waypoints)
 
 <a id="start"></a>
 ## Your first reception
@@ -728,3 +729,25 @@ The app closes the receiver cleanly, waits for the process to exit, runs the ins
 If download or preparation fails, the current app keeps running. If installation fails after shutdown, the helper records the failure and attempts to reopen the existing executable; the update page reports that the previous attempt failed. Review updates/install.log in the profile directory for setup details. Failed installation attempts and postponed versions are not retried automatically until a newer version appears; manual retry remains available. Download failures may retry at the next scheduled check.
 
 Checks and downloads contact GitHub, which sees your connection IP address. The app sends no receiver settings, sharing keys, aircraft data or history. Source and Linux builds do not automatically check or run a Windows installer.
+
+<a id="waypoints"></a>
+## Aviation waypoints on the map
+
+Show or hide an Australian reference layer, inspect points, or import your own newer waypoint data.
+
+### Show or hide waypoints
+
+1. Click WPT on the map or View → Aviation waypoints. The on/off choice is saved and starts off. Save pending settings before using the quick toggle.
+2. Zoom in to see small purple triangles and identifiers; labels thin out to limit overlap. Hover for coordinates, source and date. Aircraft retain hover and selection priority. Waypoints do not establish an aircraft’s intended route.
+
+### Reference date and coverage
+
+The bundle contains 5,185 Australia-region historical fixes from cycle October 2013, including Tasmania and nearby offshore/island areas. The date is shown on the map whenever the layer is enabled. This is not current AIRAC data and is not for navigation.
+
+The source is Robin A. Peel / FlightGear, GPL version 2 or later. Original notice, exact source URL/hash and geographic subset details are included in the bundled JSON; the GPL text is included alongside it.
+
+### Import a newer file
+
+1. Open View → Aviation waypoint data. Enter the source cycle/date if known and choose Import waypoint file. Import only data you are entitled to use. The date is user supplied, not verified.
+2. Use UTF-8 CSV with ident,latitude,longitude columns and decimal degrees, or X-Plane/FlightGear fix.dat/.dat.gz (600/1100/1101/1200 formats). Files are limited to 12 MB after decompression and 100,000 records. Invalid coordinates/files leave the previous data intact.
+3. The imported layer replaces the selected reference. Use historical reference and Use last import switch between them. Imported data stays in the local profile and is never uploaded; program updates retain it.
