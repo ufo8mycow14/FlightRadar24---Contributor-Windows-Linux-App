@@ -53,6 +53,24 @@ class NativeFeatureTests(unittest.TestCase):
         self.window.deleteLater();self.app.processEvents();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
         self.network.stop();self.ui_settings.stop();self.temp.cleanup()
 
+    def test_updates_defer_for_unsaved_display_receiver_and_secret_fields(self):
+        page=self.window.feature_preferences
+        self.assertFalse(page.has_unsaved_changes())
+        page.display_hover.setChecked(not page.display_hover.isChecked())
+        self.assertTrue(page.has_unsaved_changes())
+        self.assertFalse(self.window._update_safe())
+        page.save_display()
+        self.wait(lambda:not self.window.feature_model.pending)
+        self.assertFalse(page.has_unsaved_changes())
+        self.window.pages.key_edit.setText('unsaved')
+        self.assertFalse(self.window._update_safe())
+        self.window.pages.key_edit.clear()
+        page.secrets['smtp_password'].setText('unsaved')
+        self.assertFalse(self.window._update_safe())
+        page.secrets['smtp_password'].clear()
+        self.window.pages._dirty.add('device')
+        self.assertFalse(self.window._update_safe())
+
     def test_filter_updates_all_airspace_views_and_persists_without_radio_mutation(self):
         self.window._set_list_detached(True)
         self.window.rows=[{'icao':'ABC123','callsign':'ONE','altitude':1000,'latitude':0,'longitude':0},

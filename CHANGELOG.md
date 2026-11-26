@@ -1,5 +1,10 @@
 # Changes
 
+## 0.8.0
+
+- Added native GitHub update controls: manual checks/download/install, automatic checks every 12 hours while running, and overdue startup checks. Automatic installation is optional and off by default.
+- Verified HTTPS downloads enforce the official repository, stable newer versions, bounded installer size and GitHub SHA-256 digest. Automatic installation offers a 60-second countdown and postpone control, defers for unsaved settings, and preserves the profile and prior receiving state. Application updates skip driver provisioning and vendor downloads.
+
 ## 0.7.1
 
 - Original vector map symbols distinguish light, small, large, heavy and high-performance aircraft, helicopters, gliders, lighter-than-air craft, parachutists, ultralights and uncrewed aircraft. Sizes follow broad received categories; unknown categories use a directional marker. Surface vehicles and obstacles have their own symbols.

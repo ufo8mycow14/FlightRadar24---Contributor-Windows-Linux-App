@@ -7,7 +7,7 @@
   #define SetupOutput "..\work\installer-dist"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.7.1"
+  #define AppVersion "0.8.0"
 #endif
 #ifndef PublicRelease
   #define PublicRelease 0
@@ -96,6 +96,11 @@ var
 begin
   if CurStep <> ssPostInstall then
     Exit;
+  if ExpandConstant('{param:FRWUPDATE|0}') = '1' then
+  begin
+    Log('Application update: USB driver provisioning and optional vendor download skipped.');
+    Exit;
+  end;
   WizardForm.StatusLabel.Caption := 'Checking the USB receiver driver...';
   SummaryFile := ExpandConstant('{tmp}\frw-driver-summary.txt');
   { The execution-policy override applies only to this packaged setup process;

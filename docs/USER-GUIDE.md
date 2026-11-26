@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.7.1 · Kieran O'Rourke
+Version 0.8.0 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -35,6 +35,7 @@ All example aircraft, coordinates and delivery addresses are dummy data. Practic
 - [Privacy, credentials and network access](#privacy)
 - [Glossary and units](#glossary)
 - [About, licence and project](#about)
+- [Software updates from GitHub](#updates)
 
 <a id="start"></a>
 ## Your first reception
@@ -705,3 +706,25 @@ Dependencies retain their own licences. The official Flightradar24 feeder is pro
 Source and issue tracker: https://github.com/ufo8mycow14/FlightRadar24 . Support can copy these addresses; it never launches a browser automatically.
 
 This project is not affiliated with or endorsed by Flightradar24 AB. Windows x64 is the tested target; Linux execution remains unverified and macOS is deferred. Active MLAT and real external notification delivery remain separately verifiable features, not guaranteed outcomes.
+
+<a id="updates"></a>
+## Software updates from GitHub
+
+Check for a new Windows release, install it manually or opt into automatic installation.
+
+### Choose how to update
+
+1. Open Support → Software updates, or click Updates in the bottom bar. Check now looks for the latest published stable release in the project’s GitHub repository. A raw source commit without a published installer is not an application update.
+2. Automatic checking is on by default in the packaged Windows application. Checks run every 12 hours while the program is open, with an overdue check shortly after startup. No service or scheduled task runs when the program is closed. You can disable these checks.
+3. Automatic installation is off by default. Select Automatically download and install updates and Save preferences to enable it. Otherwise choose Download update, then Install and restart.
+4. Automatic mode provides a 60-second countdown in the bottom status bar. Open Updates and choose Postpone this version to keep using it until you install manually. Settings edits and active dialogs defer an automatic restart. Save pending changes before installing.
+
+### What installation does
+
+The installer is downloaded over HTTPS from the project’s GitHub release and its size and SHA-256 digest are verified before execution. Older versions, prereleases, missing installers, untrusted URLs and mismatched hashes are rejected. No GitHub account is needed. This validates downloaded bytes against GitHub, not a signed publisher identity.
+
+The app closes the receiver cleanly, waits for the process to exit, runs the installer and reopens the same profile. Reception resumes if it was running beforehand. Saved settings, sharing keys, optional vendor components and history are retained. Application updates skip USB driver provisioning and vendor downloads. Windows elevation prompts can still require your response.
+
+If download or preparation fails, the current app keeps running. If installation fails after shutdown, the helper records the failure and attempts to reopen the existing executable; the update page reports that the previous attempt failed. Review updates/install.log in the profile directory for setup details. Failed installation attempts and postponed versions are not retried automatically until a newer version appears; manual retry remains available. Download failures may retry at the next scheduled check.
+
+Checks and downloads contact GitHub, which sees your connection IP address. The app sends no receiver settings, sharing keys, aircraft data or history. Source and Linux builds do not automatically check or run a Windows installer.

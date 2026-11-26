@@ -20,6 +20,7 @@ from .display import (DISPLAY_DEFAULT, bearing_suffix, display_bearing, distance
     format_distance, format_seen, format_speed, format_track, format_vertical_rate,
     is_emergency, quick_match, sort_rows)
 from .native_symbols import AircraftSymbolGuide
+from .native_updates import UpdateManager, UpdateDialog
 from .native_features import FeatureModel, FilterDialog, StatisticsPage, AlertsPage, FeaturePreferences, describe
 from .native_support import HelpDialog, PracticeDialog, AboutDialog
 from .support import support_summary
@@ -132,6 +133,7 @@ class FlightRadarWindow(QMainWindow):
         self._seen_alerts = set()
         self._notification_events = {}
         self.tray = None
+        self.updater = None
         self.controller = Controller(receiver, lambda: None)
         self.dispatcher = Dispatcher(self.controller, self)
         self.feature_model = FeatureModel(self.dispatcher.invoke,self) if hasattr(receiver,'activity') else None
@@ -145,6 +147,11 @@ class FlightRadarWindow(QMainWindow):
             self.feature_model.localTest.connect(self._test_notification)
             self.feature_model.load()
             self._build_notifications()
+        self.updater = UpdateManager(receiver.settings.directory, self)
+        self.updater.can_install = lambda: self._update_safe() and self.tabs.currentIndex() == 0 and QApplication.activeModalWidget() is None
+        self.updater.resume_receiver = lambda: self.last_status.get('state') in ('starting','receiving','reconnecting')
+        self.updater.installReady.connect(self._apply_update)
+        self.updater.changed.connect(self._update_status)
         self.timer = QTimer(self)
         self.timer.setInterval(1000)
         self.timer.timeout.connect(self.poll)
@@ -380,8 +387,13 @@ class FlightRadarWindow(QMainWindow):
         self.map.refresh_overlays()
         self._layout_top_status()
         self.statusBar().showMessage('Native desktop · received ADS-B / Mode S data')
+        self.update_button = QPushButton('Updates')
+        self.update_button.setToolTip('Check for software updates or change automatic-update preferences')
+        self.update_button.clicked.connect(self.open_updates)
+        self.statusBar().addPermanentWidget(self.update_button)
         support_menu = self.menuBar().addMenu('&Support')
         for title, callback, shortcut in [
+            ('Software updates…', self.open_updates, ''),
             ('Search help…', self.open_help, 'F1'),
             ('Practice with dummy data…', lambda: PracticeDialog(self).exec(), ''),
             ('Logs and diagnostics', lambda: self.show_page('logs'), ''),
@@ -951,6 +963,34 @@ class FlightRadarWindow(QMainWindow):
         except OSError as error:
             self.notice(str(error), True)
 
+    def open_updates(self):
+        if self.updater and not self._closing:
+            UpdateDialog(self.updater, self).exec()
+
+    def _update_status(self):
+        updater = self.updater
+        self.update_button.setText('Update available' if updater.release else 'Updates')
+        self.update_button.setToolTip(updater.status)
+        if updater.countdown is not None:
+            self.statusBar().showMessage(updater.status)
+        elif updater.release:
+            self.statusBar().showMessage(updater.status, 15000)
+
+    def _update_safe(self):
+        return not (self._closing or self._action_pending or self.pages._dirty or
+                    self.pages._busy_buttons or self.pages._signup_running or
+                    self.pages.key_edit.text() or self.pages.signup_answer.text() or
+                    (self.feature_model and (self.feature_model.pending or
+                     self.feature_preferences.has_unsaved_changes())))
+
+    def _apply_update(self, plan):
+        if not self._update_safe():
+            self.updater.status = 'Save your pending settings and finish receiver operations before installing.'
+            self.updater.changed.emit()
+            return
+        self.receiver.pending_update = plan
+        self.close()
+
     def closeEvent(self, event):
         if self._can_close:
             if self.aircraft_window is not None:
@@ -961,6 +1001,8 @@ class FlightRadarWindow(QMainWindow):
         if self._closing:
             return
         self._save_ui_state()
+        if self.updater:
+            self.updater.timer.stop()
         self._closing = True
         self.timer.stop()
         self.activation_timer.stop()
@@ -977,6 +1019,11 @@ class FlightRadarWindow(QMainWindow):
         def done(value, error=None):
             if error:
                 self._closing = False
+                self.receiver.pending_update = None
+                if self.updater:
+                    self.updater.status = "Update cancelled because receiver shutdown failed."
+                    self.updater.timer.start()
+                    self.updater.changed.emit()
                 self.tabs.setEnabled(True)
                 if self.aircraft_window is not None:
                     self.aircraft_window.setEnabled(True)
@@ -989,6 +1036,8 @@ class FlightRadarWindow(QMainWindow):
                 self.activation_timer.start()
                 return
             self.pages.stop_polling()
+            if self.updater:
+                self.updater.finish()
             self.dispatcher.finish()
             self.receiver.log.close()
             if self.tray:

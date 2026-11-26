@@ -81,6 +81,33 @@ class LauncherTests(unittest.TestCase):
         desktop.run_desktop = run_desktop
         return state, Instance, Settings, Receiver, desktop
 
+    def test_update_launch_waits_for_cleanup_and_is_cancelled_on_cleanup_error(self):
+        import frw.config, frw.instance, frw.runtime, frw.platform_support
+        for fail in (False,True):
+            state, Instance, Settings, Receiver, desktop = self._modules()
+            original_run = desktop.run_desktop
+            def run(receiver, *args, **kwargs):
+                receiver.pending_update = {'helper':'test','request':'test'}
+                if fail:
+                    def stop(): raise RuntimeError('Synthetic stop failure')
+                    receiver.stop = stop
+                return original_run(receiver,*args,**kwargs)
+            desktop.run_desktop = run
+            with tempfile.TemporaryDirectory() as temporary, \
+                 patch.object(frw.instance,'ProfileInstance',Instance), \
+                 patch.object(frw.platform_support,'data_directory',return_value=Path(temporary)), \
+                 patch.object(frw.config,'Settings',Settings), \
+                 patch.object(frw.runtime,'Receiver',Receiver), \
+                 patch.dict(sys.modules,{'frw.desktop':desktop}), \
+                 patch('frw.updates.launch_update',side_effect=lambda _:state['calls'].append('update')) as launch:
+                if fail:
+                    with self.assertRaises(RuntimeError): launcher.main([])
+                    launch.assert_not_called()
+                else:
+                    self.assertEqual(launcher.main([]),0)
+                    self.assertGreater(state['calls'].index('update'),state['calls'].index('instance.close'))
+                    self.assertGreater(state['calls'].index('update'),state['calls'].index('receiver.stop'))
+
     def test_default_is_native_and_profile_lock_precedes_profile_access(self):
         state, Instance, Settings, Receiver, desktop = self._modules()
         import frw.config, frw.instance, frw.runtime, frw.platform_support

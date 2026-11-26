@@ -149,6 +149,9 @@ def main(argv=None):
             cleanup_errors.append(error)
         if cleanup_errors and sys.exc_info()[0] is None:
             raise RuntimeError('Application shutdown could not finish: ' + str(cleanup_errors[0]))
+        if not cleanup_errors and sys.exc_info()[0] is None and receiver is not None and getattr(receiver, 'pending_update', None):
+            from frw.updates import launch_update
+            launch_update(receiver.pending_update)
 
 
 def report_startup_error(error, *, headless=False):

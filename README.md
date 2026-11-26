@@ -8,9 +8,9 @@ The application uses **native Qt Widgets**. It opens in its own program window, 
 
 ## Download for Windows
 
-### [Download FlightRadar24 0.7.1 — Windows x64 installer (.exe)](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.7.1/FlightRadar24-0.7.1-Windows-x64-Setup.exe)
+### [Download FlightRadar24 0.8.0 — Windows x64 installer (.exe)](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.8.0/FlightRadar24-0.8.0-Windows-x64-Setup.exe)
 
-[All release files and checksums](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.7.1) · [Installation guide](docs/RELEASE.md)
+[All release files and checksums](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.8.0) · [Installation guide](docs/RELEASE.md)
 
 Download the installer, run it, then open **FlightRadar24** from the Start menu. Python and a browser are not required. Setup includes the app and offline USB driver components. To share reception with Flightradar24, select **Install optional Flightradar24 sharing** during setup; that component downloads directly from its vendor and requires internet access. You can also add it by running setup again later.
 
@@ -25,7 +25,7 @@ Use a suitable **1090 MHz antenna**. A receiver listing alone does not prove tha
 | USB device / family | Support status | Driver notes |
 | --- | --- | --- |
 | **RTL-SDR Blog V4** | Live reception tested on Windows x64 | WinUSB on the SDR interface; the decoder includes Blog V4 support. |
-| **A12E RTL2832U ADS-B / Mode-S (`0BDA:2832`)** | Live reception tested on Windows x64 | Single-interface WinUSB setup is supported by the updated driver helper. Included in the 0.7.1 installer. |
+| **A12E RTL2832U ADS-B / Mode-S (`0BDA:2832`)** | Live reception tested on Windows x64 | Single-interface WinUSB setup is supported by the updated driver helper. Included in the 0.8.0 installer. |
 | **RTL2832U with R820T / R820T2** | Intended compatible family; each other model remains unverified on hardware | Includes common Blog V3-style and generic RTL-SDR dongles when their hardware/IDs are compatible. |
 | **USB IDs `0BDA:2832` and `0BDA:2838`** | Composite interface 0; also single-interface `0BDA:2832` | Complete Windows setup checks these devices and preserves an existing working WinUSB binding. Composite parents and other interfaces are excluded. |
 | Other receivers with **Beast, AVR or SBS** output | Use the supported network/serial input instead of direct USB | Decoded SBS is display/SBS-forwarding only; it cannot reconstruct raw frames or feed the vendor service. |
@@ -83,6 +83,12 @@ The practice workspace starts with fictional aircraft and prefilled receiver, fi
 `pythonw.exe` avoids a persistent console window. A packaged build uses the windowed `FlightRadar24.exe`. Choose a source under **Receiver & settings**, save, then **Start receiver**. Do not use the example antenna coordinates for a real receiver.
 
 Linux uses the equivalent virtual-environment commands with `python3` and `.venv/bin/python`. A graphical session and Qt system dependencies are required. Linux runtime/hardware tests remain outstanding.
+
+## Keep the app up to date
+
+Open **Support → Software updates**, or **Updates** in the bottom bar. The Windows app checks published GitHub releases every 12 hours while running and checks at startup when overdue. Checks can be disabled; no background service runs while the app is closed.
+
+Choose **Download update**, then **Install and restart**, or opt into **Automatically download and install updates**. Automatic installation is off by default, provides a 60-second countdown and a **Postpone this version** option, and waits while settings are being edited. The download's size and SHA-256 digest must match GitHub. Saved settings/history are retained and reception resumes if it was running. Windows elevation prompts still apply. A Git push alone does not distribute an update: publish a stable release with its matching Windows installer.
 
 ## Aircraft symbols, labels, hover and estimated conflicts
 

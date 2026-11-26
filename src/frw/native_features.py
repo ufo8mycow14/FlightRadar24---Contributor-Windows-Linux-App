@@ -668,7 +668,7 @@ class FeaturePreferences(QScrollArea):
             self.clear_secrets.setChecked(False)
         self.model.save(changes,secrets or None,on_saved=saved)
 
-    def save_display(self):
+    def current_display(self):
         display={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),
                  'map_label_fields':[key for key,control in self.label_fields.items() if control.isChecked()],
                  'aircraft_hover':self.display_hover.isChecked(),'conflict_enabled':self.display_conflict.isChecked(),
@@ -676,7 +676,29 @@ class FeaturePreferences(QScrollArea):
                  'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),
                  'emergency_flash':self.display_flash.isChecked(),'north_reference':self.display_north.currentData(),
                  'magnetic_variation':self.display_variation.value()}
-        self.model.save({'display':display})
+        return display
+
+    def has_unsaved_changes(self):
+        if not self.initialized:
+            return False
+        config = self.model.value
+        display = self.current_display()
+        saved = config['display']
+        if any(display[k] != saved.get(k) for k in display if k != 'map_label_fields') or set(display['map_label_fields']) != set(saved.get('map_label_fields', [])):
+            return True
+        for key, control in self.fields.items():
+            current = control.value() if isinstance(control,QSpinBox) else control.text().strip()
+            if current != config.get(key,config['delivery'].get(key)):
+                return True
+        return (self.history.isChecked() != config['history_enabled'] or
+                self.email_enabled.isChecked() != config['delivery']['email_enabled'] or
+                self.webhook_enabled.isChecked() != config['delivery']['webhook_enabled'] or
+                self.tls.currentData() != config['delivery']['smtp_tls'] or
+                self.webkind.currentData() != config['delivery']['webhook_kind'] or
+                self.clear_secrets.isChecked() or any(control.text() for control in self.secrets.values()))
+
+    def save_display(self):
+        self.model.save({'display':self.current_display()})
 
     def external_test(self):
         self.feedback.setText('Sending a labelled external test using saved delivery settings…')
