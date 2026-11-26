@@ -44,6 +44,13 @@ GROUPS = [
         ("altitude_hold_mode", "Altitude hold", "boolean"), ("approach_mode", "Approach mode", "boolean"),
     ]),
     ("Signal integrity & capability", [
+        ("signal_dbfs", "Received level (dBFS)", "text"), ("corrected_bits", "Bits corrected at receiver", "code"),
+        ("gva", "Geometric vertical accuracy (GVA code)", "code"), ("sda", "System design assurance (SDA code)", "code"),
+        ("ident_active", "IDENT active", "boolean"), ("single_antenna", "Single antenna", "boolean"),
+        ("ra_active", "ACAS advisory active (reported)", "boolean"), ("atc_services", "ATC services status", "boolean"),
+        ("adsb_1090_in", "1090ES receive capability", "boolean"), ("adsb_uat_in", "UAT receive capability", "boolean"),
+        ("nic_c", "Surface NIC supplement C", "code"), ("surface_dimensions_code", "Surface dimensions code", "code"),
+        ("antenna_offset_code", "GPS antenna offset code", "code"),
         ("version", "ADS-B version", "code"), ("nac_p", "Position accuracy (NACp)", "quality"),
         ("nac_v", "Velocity accuracy (NACv)", "quality"), ("nuc_p", "Legacy NUCp code (from typecode)", "quality"),
         ("sil", "Source integrity (SIL)", "quality"), ("sil_supplement", "SIL supplement", "code"),
@@ -53,6 +60,14 @@ GROUPS = [
         ("tcas_operational", "TCAS operational", "boolean"), ("acas_operational", "ACAS operational", "boolean"),
         ("issued_ra", "Resolution advisory issued", "boolean"), ("ra_terminated", "Resolution advisory terminated", "boolean"),
         ("multiple_threat", "Multiple threats", "boolean"),
+    ]),
+    ("Weather · inferred Comm-B reports", [
+        ("wind_speed","Wind speed (kt)","text"), ("wind_direction","Wind direction (°)","text"),
+        ("static_air_temperature","Static air temperature (°C)","text"), ("static_pressure","Static pressure (hPa)","text"),
+        ("humidity","Humidity (%)","text"), ("turbulence","Turbulence code","code"),
+        ("wind_shear","Wind shear code","code"), ("microburst","Microburst code","code"),
+        ("icing","Icing code","code"), ("radio_height","Radio height (ft)","text"),
+        ("wake_vortex_hazard","Wake vortex hazard code","code"),
     ]),
 ]
 
@@ -511,7 +526,7 @@ class NativeAircraftDetails(QWidget):
             self.rows[key] = (value, note, kind, label)
             self.row_widgets[key] = (name, value, note)
         if title == "Signal integrity & capability":
-            section.body_layout.addWidget(_label("Broadcast codes and flags; not signal strength or reception percentages.", "fieldNote"))
+            section.body_layout.addWidget(_label("Received level is relative to receiver full scale. Accuracy and integrity codes describe the aircraft’s broadcast.", "fieldNote"))
         self.content_layout.addWidget(section)
 
     def set_detail(self, detail, input_type="usb", connection_error=False):

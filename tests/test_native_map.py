@@ -10,7 +10,7 @@ sys.path[:0] = [str(ROOT / 'src'), str(ROOT / 'work/desktoplibs')]
 os.environ.setdefault('QT_QPA_PLATFORM', os.environ.get('FRW_TEST_QT_PLATFORM', 'offscreen'))
 try:
     from PySide6.QtCore import QBuffer, QByteArray, QEvent, QIODevice, QPointF, Qt
-    from PySide6.QtGui import QColor, QHelpEvent, QPixmap
+    from PySide6.QtGui import QColor, QHelpEvent, QMouseEvent, QPixmap
     from PySide6.QtNetwork import QNetworkReply
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
@@ -75,6 +75,149 @@ class NativeMapTests(unittest.TestCase):
         self.assertEqual(canvas._waypoint_markers,[])
         self.map.set_display({'aviation_waypoints':False})
         self.assertIsNone(canvas._hit_waypoint(canvas._screen(0,0)))
+
+    def test_full_world_catalog_render_stays_spatially_bounded(self):
+        import json
+        from frw.waypoints import BUNDLED, WaypointCatalog
+        canvas=self.map.canvas
+        catalog=WaypointCatalog(json.loads(BUNDLED.read_text(encoding='utf-8')))
+        canvas.waypoint_catalog=catalog
+        canvas.set_center(-35,139,9)
+        self.map.set_display({'aviation_waypoints':True})
+        self.map.grab()
+        self.assertGreater(canvas._waypoint_count,0)
+        self.assertLess(canvas._waypoint_count,len(catalog.points))
+        self.assertLessEqual(len(canvas._waypoint_markers),1500)
+
+    def test_waypoint_guide_obeys_overlay_track_freshness_and_hover_selection(self):
+        from frw.waypoints import WaypointCatalog
+        import time
+        canvas=self.map.canvas
+        canvas.waypoint_catalog=WaypointCatalog({'points':[['FORWARD',0,.2]]})
+        canvas.display['aviation_waypoints']=True
+        canvas.rows=[
+            {'icao':'SELECTED','latitude':0,'longitude':0,'track':90,'on_ground':False,
+             'field_times':{'latitude':time.time(),'longitude':time.time(),'track':time.time()}},
+            {'icao':'HOVERED','latitude':0,'longitude':0,'track':90,'on_ground':False,
+             'field_times':{'latitude':time.time(),'longitude':time.time(),'track':time.time()}},
+        ]
+        canvas.selected='SELECTED'
+        canvas._hover_point=None
+        painter=Mock()
+        painter.fontMetrics.return_value.horizontalAdvance.return_value=100
+        canvas._draw_waypoint_guide(painter)
+        self.assertEqual(painter.drawLine.call_count,2)
+        canvas.set_center(0,0,9)
+        image=canvas.grab().toImage()
+        self.assertTrue(any(image.pixelColor(x,y).red()>240 and image.pixelColor(x,y).green()>170 and
+                            image.pixelColor(x,y).blue()<80
+                            for x in range(430,min(550,image.width()))
+                            for y in range(280,min(320,image.height()))))
+        painter.reset_mock()
+        canvas._guide_hover_icao='HOVERED'
+        canvas.display['aircraft_hover']=False
+        canvas._hover_point=QPointF(10,10)
+        with patch.object(canvas,'_hit_aircraft',return_value='HOVERED'):
+            canvas._refresh_hover()
+        self.assertEqual(canvas._guide_hover_icao,'HOVERED')
+        canvas.display['aircraft_hover']=True
+        canvas._draw_waypoint_guide(painter)
+        self.assertEqual(painter.drawLine.call_count,2)
+        painter.reset_mock()
+        canvas._guide_hover_icao=''
+        canvas._draw_waypoint_guide(painter)
+        self.assertEqual(painter.drawLine.call_count,2)
+        painter.reset_mock()
+        canvas._guide_hover_icao='HOVERED'
+        canvas.rows[1]['field_times']['track']=time.time()-16
+        with patch('frw.native_map.time.time',return_value=time.time()):
+            canvas._draw_waypoint_guide(painter)
+        painter.drawLine.assert_not_called()
+        self.assertFalse(canvas._guide_expiry_timer.isActive())
+        canvas._guide_hover_icao=''
+        canvas.display['aviation_waypoints']=False
+        canvas._draw_waypoint_guide(painter)
+        painter.drawLine.assert_not_called()
+
+    def test_waypoint_guide_ages_out_without_a_new_receiver_snapshot(self):
+        from frw.waypoints import WaypointCatalog
+        canvas=self.map.canvas
+        canvas.waypoint_catalog=WaypointCatalog({'points':[['FORWARD',0,.2]]})
+        canvas.display['aviation_waypoints']=True
+        canvas.selected='STALE'
+        canvas.rows=[{'icao':'STALE','latitude':0,'longitude':0,'track':90,'on_ground':False,
+                      'field_times':{'latitude':98,'longitude':99,'track':90}}]
+        painter=Mock()
+        painter.fontMetrics.return_value.horizontalAdvance.return_value=100
+        with patch('frw.native_map.time.time',return_value=100):
+            canvas._draw_waypoint_guide(painter)
+            self.assertEqual(painter.drawLine.call_count,2)
+            self.assertTrue(canvas._guide_expiry_timer.isActive())
+        painter.reset_mock()
+        with patch('frw.native_map.time.time',return_value=106):
+            canvas._draw_waypoint_guide(painter)
+        painter.drawLine.assert_not_called()
+        self.assertFalse(canvas._guide_expiry_timer.isActive())
+        canvas.rows[0]['field_times']['track']=106
+        canvas.rows[0]['field_times']['longitude']=75
+        painter.reset_mock()
+        with patch('frw.native_map.time.time',return_value=106):
+            canvas._draw_waypoint_guide(painter)
+        painter.drawLine.assert_not_called()
+
+    def test_empty_mouse_moves_do_not_repaint_and_hover_changes_do(self):
+        from frw.waypoints import WaypointCatalog
+        canvas=self.map.canvas
+        canvas.display['aviation_waypoints']=True
+        canvas.waypoint_catalog=WaypointCatalog({'points':[['FIX',0,.1]]})
+        positions=[QPointF(100,100),QPointF(110,110),QPointF(120,120),QPointF(121,120)]
+        hits=['','','A00001','A00001']
+        with patch.object(canvas,'_hit_aircraft',side_effect=hits), patch.object(canvas,'_hit_waypoint',return_value=None), \
+             patch.object(canvas,'update') as repaint:
+            for point in positions:
+                global_point=QPointF(canvas.mapToGlobal(point.toPoint()))
+                event=QMouseEvent(QEvent.Type.MouseMove,point,global_point,Qt.MouseButton.NoButton,
+                                  Qt.MouseButton.NoButton,Qt.KeyboardModifier.NoModifier)
+                canvas.mouseMoveEvent(event)
+            self.assertEqual(repaint.call_count,1)
+        canvas._guide_hover_icao=''
+
+    def test_offscreen_waypoint_guide_does_not_clamp_a_label_onto_map(self):
+        from frw.waypoints import WaypointCatalog
+        import time
+        canvas=self.map.canvas
+        canvas.display['aviation_waypoints']=True
+        canvas.waypoint_catalog=WaypointCatalog({'points':[['OFFSCREEN',0,-149]]})
+        canvas.selected='OFFSCREEN-PLANE'
+        canvas.rows=[{'icao':'OFFSCREEN-PLANE','latitude':0,'longitude':-150,'track':90,'on_ground':False,
+                      'field_times':{'latitude':time.time(),'longitude':time.time(),'track':time.time()}}]
+        canvas.set_center(0,0,9)
+        painter=Mock()
+        painter.fontMetrics.return_value.horizontalAdvance.return_value=100
+        canvas._draw_waypoint_guide(painter)
+        painter.drawText.assert_not_called()
+
+    def test_waypoint_guide_dateline_legs_use_short_wrapped_world_copy(self):
+        from frw.waypoints import WaypointCatalog
+        canvas=self.map.canvas
+        canvas.display['aviation_waypoints']=True
+        canvas._hover_point=None
+        canvas.selected='DATE'
+        painter=Mock()
+        painter.fontMetrics.return_value.horizontalAdvance.return_value=100
+        cases=[(179.8,-179.9,90,-179.8),(-179.8,179.9,270,179.8)]
+        import time
+        for origin_lon,target_lon,track,center_lon in cases:
+            canvas.waypoint_catalog=WaypointCatalog({'points':[['NEXT',0,target_lon]]})
+            canvas.rows=[{'icao':'DATE','latitude':0,'longitude':origin_lon,'track':track,'on_ground':False,
+                          'field_ages':{'latitude':0,'longitude':0,'track':0}}]
+            canvas.set_center(0,center_lon,9)
+            canvas.rows[0]['field_times']={'latitude':time.time(),'longitude':time.time(),'track':time.time()}
+            painter.reset_mock()
+            canvas._draw_waypoint_guide(painter)
+            self.assertEqual(painter.drawLine.call_count,2)
+            origin,destination=painter.drawLine.call_args_list[0].args
+            self.assertLess((destination-origin).manhattanLength(),200)
 
     def test_emergency_aircraft_flashes_and_steady_red_option(self):
         canvas = self.map.canvas

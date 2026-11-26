@@ -123,6 +123,7 @@ class FlightRadarWindow(QMainWindow):
         self.selected, self.rows, self.last_status = '', [], {}
         self.conflicts = {'alerts': {}, 'assessed': 0, 'unassessed': 0, 'pairs': 0}
         self._poll_pending = self._detail_pending = self._action_pending = False
+        self._refresh_after_action = False
         self._details_width_set = False
         self._closing = self._can_close = False
         self._poll_notice = None
@@ -784,7 +785,10 @@ class FlightRadarWindow(QMainWindow):
                 return
             if error:
                 self.notice(str(error), True)
-            self.poll()
+            if self._poll_pending:
+                self._refresh_after_action = True
+            else:
+                self.poll()
         self.dispatcher.invoke('/api/' + name, {}, done)
 
     def poll(self):
@@ -799,6 +803,10 @@ class FlightRadarWindow(QMainWindow):
         def done(status, error=None):
             self._poll_pending = False
             if self._closing:
+                return
+            if self._refresh_after_action:
+                self._refresh_after_action = False
+                self.poll()
                 return
             if error:
                 self._status_notice('Receiver status unavailable: ' + str(error))

@@ -33,7 +33,8 @@ INPUT_CHOICES = (
 GROUPS = {
     'receiver': ('receiver', 'device', 'host', 'input_port', 'serial_port',
                  'baudrate', 'iq_file', 'sample_rate'),
-    'tuning': ('gain', 'ppm', 'error_correction', 'agc', 'bias_tee', 'dc_filter', 'phase_enhance'),
+    'tuning': ('gain', 'bandwidth_khz', 'ppm', 'error_correction', 'agc', 'bias_tee',
+               'dc_filter', 'phase_enhance', 'mode_ac', 'meteo', 'capture_mb'),
     'location': ('latitude', 'longitude', 'altitude_ft', 'range_nm'),
     'sharing': ('feed_enabled', 'mlat', 'mlat_without_gps'),
     'outputs': ('raw', 'raw_port', 'bs', 'bs_port', 'beast', 'beast_port', 'bind_interface'),
@@ -46,6 +47,8 @@ LABELS = {
     'sample_rate': 'Sample rate', 'gain': 'Tuner gain (dB)',
     'ppm': 'Frequency correction (PPM)', 'error_correction': 'Bit error correction',
     'agc': 'Digital automatic gain', 'bias_tee': 'Bias tee power',
+    'bandwidth_khz': 'Tuner bandwidth (kHz)', 'mode_ac': 'Decode anonymous Mode A/C replies',
+    'meteo': 'Try identifying Comm-B weather reports', 'capture_mb': 'Local message archive (MiB)',
     'dc_filter': 'DC filter', 'phase_enhance': 'Phase enhancement',
     'latitude': 'Latitude (decimal degrees)', 'longitude': 'Longitude (decimal degrees)',
     'altitude_ft': 'Antenna altitude AMSL (feet)', 'range_nm': 'Maximum position range (NM)',
@@ -72,11 +75,16 @@ INTEGER_LIMITS = {
     'input_port': (1, 65535), 'raw_port': (1024, 65535),
     'bs_port': (1024, 65535), 'beast_port': (1024, 65535),
     'ppm': (-1000, 1000), 'global_timeout': (0, 86400), 'aircraft_ttl': (10, 3600),
+    'bandwidth_khz': (0, 3200), 'capture_mb': (0, 4096),
 }
 OPTIONAL_NUMBERS = frozenset(('latitude', 'longitude', 'altitude_ft'))
 HINTS = {
     'device': '0 is the first compatible receiver; 1 is the second. Scanned native devices can be selected below.',
     'gain': '−10 selects automatic gain. Manual gain is 0–60 dB.',
+    'bandwidth_khz': '0 uses the driver default; otherwise choose 300–3200 kHz. Supported widths depend on the tuner.',
+    'bias_tee': 'Supplies DC power to the antenna socket. Enable only for compatible powered equipment.',
+    'capture_mb': '0 disables recording. Otherwise the oldest private message segments rotate out at this limit.',
+    'meteo': 'Weather formats are inferred, not labelled by the aircraft. Ambiguous payloads stay unidentified.',
     'latitude': 'South is negative. Leave both coordinates blank for local reception without a reference position.',
     'longitude': 'West is negative.',
     'altitude_ft': 'Use the same antenna altitude during official registration.',
@@ -115,6 +123,10 @@ class NativePages(QWidget):
         self._last_logs = None
         self._last_signup_text = None
         self._last_monitor = None
+        self._current_sample = None
+        self._baseline_rate = None
+        self._sample_rate = None
+        self._gain_options = None
         self._closed = False
 
         layout = QVBoxLayout(self)
@@ -222,6 +234,12 @@ class NativePages(QWidget):
                 column.addLayout(self._buttons(control, browse))
             else:
                 column.addWidget(control)
+            if key == 'gain':
+                self.gain_steps = QComboBox()
+                self.gain_steps.setToolTip('Reported by the last receiver at this USB index. Selecting a step edits the form; it does not retune a running radio.')
+                self.gain_steps.activated.connect(self._select_gain_step)
+                column.addWidget(self.gain_steps)
+                self.gain_steps.hide()
             if key in HINTS:
                 column.addWidget(self._help(HINTS[key]))
             if isinstance(default, bool):
@@ -238,6 +256,16 @@ class NativePages(QWidget):
         self.start_button = self._button('Start receiver', lambda b: self._request('/api/start', {}, button=b))
         self.stop_button = self._button('Stop receiver', lambda b: self._request('/api/stop', {}, button=b))
         page.addLayout(self._buttons(self.start_button, self.stop_button))
+        comparison = QGroupBox('Reception quality · last 60 seconds')
+        layout = QVBoxLayout(comparison)
+        self.quality_summary = self._help('No receiver sample yet.')
+        self.baseline_button = self._button('Keep this minute as baseline', lambda _: self._keep_sample())
+        self.baseline_button.setEnabled(False)
+        self.baseline_summary = self._help('Keep a baseline, change one setting, then compare another full minute under similar traffic.')
+        self.capture_summary = self._help('')
+        for widget in (self.quality_summary, self.baseline_button, self.baseline_summary, self.capture_summary):
+            layout.addWidget(widget)
+        page.addWidget(comparison)
         page.addWidget(self._field_group('Input', 'receiver'))
         devices = QGroupBox('USB receivers')
         layout = QVBoxLayout(devices)
@@ -360,15 +388,22 @@ class NativePages(QWidget):
     def _edited(self, key):
         if not self._populating:
             self._dirty.add(key)
-        if key == 'receiver':
+        if key in ('receiver', 'sample_rate') and not self._populating:
             self._input_visibility()
 
     def _input_visibility(self):
         receiver = self.fields['receiver'].currentData()
+        native = receiver in ('usb', 'iq-file')
+        windows = os.name == 'nt'
         rules = {'device': receiver == 'usb', 'host': receiver.endswith('tcp'),
                  'input_port': receiver.endswith('tcp'), 'serial_port': receiver.endswith('serial'),
                  'baudrate': receiver.endswith('serial'), 'iq_file': receiver == 'iq-file',
-                 'sample_rate': receiver in ('usb', 'iq-file')}
+                 'sample_rate': native, 'gain': receiver == 'usb', 'agc': receiver == 'usb',
+                 'ppm': receiver == 'usb', 'bias_tee': windows and receiver == 'usb',
+                 'bandwidth_khz': windows and receiver == 'usb', 'mode_ac': native,
+                 'error_correction': native, 'dc_filter': windows and native,
+                 'phase_enhance': windows and native and self._value('sample_rate') == 2000000,
+                 'meteo': receiver != 'sbs-tcp'}
         for key, visible in rules.items():
             form, wrapper = self._rows[key]
             form.setRowVisible(wrapper, visible)
@@ -460,6 +495,66 @@ class NativePages(QWidget):
             self._notify('Settings saved. Start the receiver to use them.')
         self._request('/api/settings', {'settings': proposed}, saved, button)
 
+    def _keep_sample(self):
+        if self._current_sample:
+            self.baseline_summary.setText('Baseline: ' + self._current_sample)
+            self._baseline_rate = self._sample_rate
+
+    def _select_gain_step(self, index):
+        value = self.gain_steps.itemData(index)
+        if value is not None and self._gain_options and self._gain_options[0] == self._value('device'):
+            self.fields['gain'].setValue(value)
+        self.gain_steps.setCurrentIndex(0)
+
+    def _update_quality(self, status, state):
+        quality = status.get('quality') or {}
+        source = status.get('input', '')
+        options = (quality.get('device_index'), tuple(quality.get('gain_steps', ())))
+        if self._gain_options != options:
+            self._gain_options = options
+            self.gain_steps.clear()
+            self.gain_steps.addItem('Use a reported tuner gain step…')
+            for value in options[1]:
+                self.gain_steps.addItem(f'{value:g} dB', value)
+        self.gain_steps.setVisible(bool(options[1]) and options[0] == self._value('device'))
+        def metric(key, suffix):
+            value = quality.get(key)
+            return 'unavailable' if value is None else f'{value}{suffix}'
+        sample = None
+        self._sample_rate = None
+        if state == 'receiving' and quality and source != 'sbs-tcp':
+            seconds = quality['seconds']
+            settings = quality.get('settings', '')
+            if quality.get('reported_gain'):
+                settings += f", device reports {quality['reported_gain']}"
+            sample = (f"{source} {settings} · {seconds}s: {quality['accepted_rate']}/s accepted, "
+                      f"{quality['mode_s']-quality['accepted']} rejected by app, {quality['mode_ac']} Mode A/C. "
+                      f"Mean level {metric('mean_dbfs',' dBFS')}; strong (≥ −3 dBFS) {metric('strong_pct','%')}; "
+                      f"reported corrections {metric('corrected_pct','%')}; "
+                      f"accepted without correction {metric('clean_rate','/s')}.")
+            current = (source, quality['accepted_rate'])
+            comparison = ''
+            if seconds >= 60 and self._baseline_rate and source == self._baseline_rate[0]:
+                change = current[1] - self._baseline_rate[1]
+                comparison = f' Change from baseline: {change:+.2f} accepted/s.'
+            if source == 'iq-file':
+                comparison += ' Playback wall-clock rate, not a live RF rate.'
+            self.quality_summary.setText(sample + comparison)
+            if seconds < 60:
+                sample = None
+            else:
+                self._sample_rate = current
+        else:
+            self.quality_summary.setText('SBS contains decoded text, not RF quality measurements.'
+                if source == 'sbs-tcp' else 'No active receiver sample.')
+        self._current_sample = sample
+        self.baseline_button.setEnabled(sample is not None)
+        capture = status.get('capture') or {}
+        archive = (f"Archive: {capture.get('written',0)} written · {capture.get('pending',0)} queued · "
+                   f"{capture.get('dropped',0)} dropped. {capture.get('error','')}"
+                   if capture.get('enabled') else 'Local archive off.')
+        self.capture_summary.setText(archive + (' Local profile: message-capture/' if capture.get('enabled') else ''))
+
     def update_status(self, status):
         if not isinstance(status, dict):
             return
@@ -469,6 +564,7 @@ class NativePages(QWidget):
         if status.get('error'):
             text += ' · ' + str(status['error'])
         self.receiver_state.setText(text)
+        self._update_quality(status, state)
         feeder = status.get('feeder') or {}
         monitor = feeder.get('monitor') or {}
         feed = monitor.get('feed_status') or monitor.get('feed-status') or 'Not confirmed'

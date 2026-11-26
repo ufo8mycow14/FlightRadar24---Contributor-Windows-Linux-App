@@ -21,7 +21,12 @@ DETAIL_FIELDS = frozenset('''callsign groundspeed track heading magnetic_heading
     transponder_level5 uplink_elm_throughput downlink_elm_throughput
     aircraft_identification_capability squitter_capability surveillance_identifier_code
     common_usage_gicb_capability mode_s_specific_services acas_hybrid_surveillance
-    acas_rtca_version dte_status'''.split())
+    acas_rtca_version dte_status downlink_request utility_message movement track_status gva sda
+    ident_active single_antenna signal_dbfs corrected_bits sbs_alert sbs_emergency sbs_ident
+    wind_speed wind_direction static_air_temperature static_pressure humidity turbulence
+    figure_of_merit wind_shear microburst icing radio_height wake_vortex_hazard
+    cpr_format cpr_lat cpr_lon mv ra_active atc_services adsb_1090_in adsb_uat_in
+    nic_c surface_dimensions_code antenna_offset_code'''.split())
 IDENTITY_FIELDS = frozenset('''callsign category category_typecode wake_vortex version
     capability capability_text capability_class hrd supported_bds config
     overlay_command_capability mode_s_subnetwork_version transponder_level5
@@ -30,7 +35,8 @@ IDENTITY_FIELDS = frozenset('''callsign category category_typecode wake_vortex v
     mode_s_specific_services acas_hybrid_surveillance acas_rtca_version
     data_source df typecode subtype bds bds_candidates'''.split())
 HEADER_FIELDS = frozenset(('altitude','squawk','flight_status','flight_status_text',
-                           'df','icao','crc_valid','icao_verified','bds_candidates'))
+                           'df','icao','crc_valid','icao_verified','bds_candidates','downlink_request','utility_message',
+                           'signal_dbfs','corrected_bits'))
 HISTORY_FIELDS = frozenset(('altitude_baro','altitude_gnss','altitude_unspecified',
                             'groundspeed','indicated_airspeed','true_airspeed','mach'))
 FIELD_TTL = 60
@@ -53,7 +59,7 @@ class Aircraft:
         self.config=config;self.lock=threading.RLock();self.rows={};self.total=0;self.rejected=0;self.last=None
         self.events=collections.deque(maxlen=20000);self.trusted={}
         ref=None if config['latitude'] is None else (config['latitude'],config['longitude'])
-        self.decoder=PipeDecoder(surface_ref=ref,eviction_ttl=max(300,config['aircraft_ttl']))
+        self.decoder=PipeDecoder(surface_ref=ref,include_meteo=config.get('meteo',False),eviction_ttl=max(300,config['aircraft_ttl']))
     def frame(self,frame,now=None):
         now=time.time() if now is None else now
         if len(frame.data) not in (7,14):return None
@@ -66,6 +72,31 @@ class Aircraft:
             if d.get('crc_valid') is True:self.trusted[icao]=now
             elif now-self.trusted.get(icao,0)>120:
                 self.rejected+=1;return None
+            if frame.signal:
+                d['signal_dbfs'] = round(20*math.log10(frame.signal/255),1)
+            if frame.corrected is not None:
+                d['corrected_bits'] = frame.corrected
+            if d.get('df') in (20,21):
+                d['downlink_request'] = frame.data[1] >> 3
+                d['utility_message'] = ((frame.data[1]&7)<<3) | (frame.data[2]>>5)
+                status = frame.data[0]&7
+                d['flight_status'] = status
+                d['flight_status_text'] = ('No alert, airborne','No alert, on ground','Alert, airborne',
+                    'Alert, on ground','Alert and IDENT','IDENT','Reserved','Reserved')[status]
+            if d.get('df') in (17,18) and d.get('typecode')==31 and d.get('version')==2 and d.get('subtype') in (0,1):
+                mode = d['operational_mode']
+                if mode >> 14 == 0:
+                    d.update(sda=(mode>>8)&3,ident_active=bool(mode&0x1000),single_antenna=bool(mode&0x400),
+                             ra_active=bool(mode&0x2000),atc_services=bool(mode&0x0800))
+                capability = d['capability_class']
+                if capability >> 14 == 0:
+                    d['adsb_1090_in'] = bool(capability & 0x1000)
+                    d['adsb_uat_in'] = bool(capability & (0x20 if d['subtype']==0 else 0x100))
+                    if d['subtype']==1:
+                        d.update(nac_v=(capability>>5)&7,nic_c=(capability>>4)&1,
+                                 surface_dimensions_code=capability&15,antenna_offset_code=mode&255)
+                if d['subtype']==0:
+                    d['gva'] = (frame.data[10]>>6)&3
             return self._update(icao,d,now)
     def _update(self,icao,d,now):
         if not re.fullmatch('[A-Fa-f0-9]{6}',icao):return None
@@ -80,6 +111,7 @@ class Aircraft:
                 'Mode S / Comm-B' if df in (20,21) else 'Mode S' if df is not None else 'SBS/BaseStation input')
         provenance=source+(f' TC{tc}' if df in (17,18) else f' DF{df}' if df is not None else '')
         if d.get('bds') and df in (20,21):provenance+=f" BDS {d['bds']}"
+        if df in (20,21) and d.get('bds') in ('4,4','4,5'):provenance+=' (inferred weather)'
         updates={}
         def put(key,value,origin=None):
             if origin is None:origin=provenance
@@ -105,6 +137,8 @@ class Aircraft:
             provenance=f'{source} DF{df} header'
         elif df in (20,21):
             r.pop('bds_candidates',None)
+            if d.get('bds') == '4,5' and 'wake_vortex' in d:
+                d['wake_vortex_hazard'] = d.pop('wake_vortex')
         for key in ('bds','bds_candidates'):
             if key in d:put(key,d[key],source)
         # Reserved ADS-B formats must not be interpreted using a different layout.
@@ -237,6 +271,8 @@ class Aircraft:
                 if fields[i]:d[k]=fields[i] if k in ('callsign','squawk') else float(fields[i])
             if any(isinstance(v,float) and not math.isfinite(v) for v in d.values()):return
             if fields[21]:d['on_ground']=fields[21]=='-1'
+            for index,key in ((18,'sbs_alert'),(19,'sbs_emergency'),(20,'sbs_ident')):
+                if fields[index] in ('-1','0','1'):d[key]=fields[index]!='0'
         except ValueError:return
         with self.lock:self._update(fields[4].upper(),d,time.time() if now is None else now)
     @staticmethod

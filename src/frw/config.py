@@ -8,6 +8,7 @@ DEFAULT = {
     'receiver': 'usb', 'device': '0', 'host': '127.0.0.1', 'input_port': 30005,
     'serial_port': 'COM3', 'baudrate': 115200, 'iq_file': '', 'sample_rate': 2400000,
     'gain': -10.0, 'ppm': 0, 'agc': False, 'bias_tee': False,
+    'bandwidth_khz':0, 'mode_ac':True, 'capture_mb':0, 'meteo':False,
     'error_correction': 1, 'phase_enhance': False, 'dc_filter': True,
     'latitude': None, 'longitude': None, 'altitude_ft': None,
     'range_nm': 300, 'aircraft_ttl': 60, 'global_timeout': 600,
@@ -29,7 +30,7 @@ def validate(config):
     if unknown: raise ConfigError('Unknown settings: ' + ', '.join(sorted(unknown)))
     c = copy.deepcopy(DEFAULT); c.update(config)
     if c['receiver'] not in RECEIVERS: raise ConfigError('Choose a supported receiver input.')
-    for key in ['agc','bias_tee','phase_enhance','dc_filter','raw','bs','beast','autostart_receiver','feed_enabled','mlat','mlat_without_gps']:
+    for key in ['agc','bias_tee','phase_enhance','dc_filter','raw','bs','beast','autostart_receiver','feed_enabled','mlat','mlat_without_gps','mode_ac','meteo']:
         if type(c[key]) is not bool: raise ConfigError(key + ' must be true or false.')
     limits = {'input_port':(1,65535),'raw_port':(1024,65535),'bs_port':(1024,65535),
               'beast_port':(1024,65535),'ppm':(-1000,1000),'range_nm':(1,21600),
@@ -46,6 +47,10 @@ def validate(config):
     if (c['latitude'] is None)!=(c['longitude'] is None): raise ConfigError('Enter both latitude and longitude, or leave both empty.')
     if -10 < c['gain'] < 0: raise ConfigError('Gain must be -10 for automatic gain, or from 0 to 60 dB.')
     if c['sample_rate'] not in (2000000,2400000): raise ConfigError('Sample rate must be 2 MHz or 2.4 MHz.')
+    if type(c['bandwidth_khz']) is not int or not (c['bandwidth_khz']==0 or 300<=c['bandwidth_khz']<=3200):
+        raise ConfigError('Tuner bandwidth: use 0 for the driver default, or 300–3200 kHz.')
+    if type(c['capture_mb']) is not int or not 0<=c['capture_mb']<=4096:
+        raise ConfigError('Raw message capture budget must be 0–4096 MiB; 0 disables recording.')
     if platform.system() == 'Linux' and c['receiver'] in ('usb', 'iq-file') and c['sample_rate'] != 2400000:
         raise ConfigError('The Linux decoder uses a fixed 2.4 MHz sample rate for USB and I/Q input.')
     if c['error_correction'] not in (0,1,2) or c['logmode'] not in (0,1,2): raise ConfigError('Invalid correction or logging mode.')

@@ -12,8 +12,8 @@ from pathlib import Path
 import re
 
 MAX_BYTES = 12 * 1024 * 1024
-MAX_POINTS = 100000
-BUNDLED = Path(__file__).parent / 'data/waypoints-au.json'
+MAX_POINTS = 150000
+BUNDLED = Path(__file__).parent / 'data/waypoints-worldwide.json'
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ def validate_points(rows):
     points, seen = [], set()
     for number, row in enumerate(rows, 1):
         if number > MAX_POINTS:
-            raise ValueError('Waypoint files are limited to 100,000 records.')
+            raise ValueError(f'Waypoint files are limited to {MAX_POINTS:,} records.')
         try:
             ident, latitude, longitude = row
             if not isinstance(ident, str):
@@ -112,6 +112,58 @@ class WaypointCatalog:
     def caption(self):
         prefix = 'Historical reference' if self.historical else 'Imported reference'
         return f'{prefix} · {self.cycle}'
+
+    def nearby(self, latitude, longitude, radius_nm):
+        lat_radius = radius_nm / 60
+        lat_reach = lat_radius + 0.25
+        if abs(latitude) + lat_radius >= 90:
+            lon_reach = 180
+        else:
+            farthest_latitude = math.copysign(abs(latitude) + lat_radius, latitude)
+            lon_reach = min(180, radius_nm / (60 * math.cos(math.radians(farthest_latitude))) + 0.25)
+        south, north = max(-90, latitude - lat_reach), min(90, latitude + lat_reach)
+        yield from self.visible(longitude - lon_reach, south, longitude + lon_reach, north)
+
+
+def directional_waypoint(catalog, latitude, longitude, track_degrees, *,
+                         max_distance_nm=100, approach_switch_nm=6, minimum_ahead_nm=1.5):
+    """Return a forward corridor fix; this is a direction hint, never a filed route."""
+    if (not all(isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+                for v in (latitude, longitude, track_degrees)) or
+            not -90 <= latitude <= 90 or not -180 <= longitude <= 180 or
+            not 0 <= track_degrees < 360):
+        return None
+    candidates = []
+    lat1 = math.radians(latitude)
+    track = math.radians(track_degrees)
+    for point in catalog.nearby(latitude, longitude, max_distance_nm):
+        lat2 = math.radians(point.latitude)
+        dlat = lat2 - lat1
+        dlon = math.radians(point.longitude - longitude)
+        hav = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        distance = 3440.065 * 2 * math.asin(math.sqrt(max(0, min(1, hav))))
+        if distance < minimum_ahead_nm or distance > max_distance_nm:
+            continue
+        bearing = math.atan2(math.sin(dlon) * math.cos(lat2),
+                             math.cos(lat1) * math.sin(lat2) - math.sin(lat1) * math.cos(lat2) * math.cos(dlon))
+        difference = (bearing - track + math.pi) % (2 * math.pi) - math.pi
+        angle = abs(math.degrees(difference))
+        along = distance * math.cos(difference)
+        cross_track = distance * abs(math.sin(difference))
+        if (angle > 30 or along < minimum_ahead_nm or
+                cross_track > min(12, max(3, along * 0.18))):
+            continue
+        candidates.append((along, point))
+    if not candidates:
+        return None
+    candidates.sort(key=lambda item: item[0])
+    if candidates[0][0] <= approach_switch_nm and len(candidates) > 1:
+        first = candidates[0][1]
+        following = next((point for _, point in candidates[1:]
+                          if (point.latitude, point.longitude) != (first.latitude, first.longitude)), None)
+        if following is not None:
+            return following
+    return candidates[0][1]
 
 
 class WaypointStore:

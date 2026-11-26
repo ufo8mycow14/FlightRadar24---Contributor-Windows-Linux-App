@@ -12,6 +12,7 @@ work/*
 **/updates/
 **/sharing-key*
 **/alert-secrets*
+**/message-capture/
 **/airspace.sqlite3*
 **/*session*.json
 **/.env

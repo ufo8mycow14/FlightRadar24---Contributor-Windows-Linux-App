@@ -1,19 +1,34 @@
 """Bounded AVR, Beast and SBS streams. Beast clocks are never fabricated."""
 from dataclasses import dataclass
 import queue,re,socket,threading
+from pyModeS._altcode import altcode_to_altitude
+
+def legacy_interpretations(payload):
+    word = int.from_bytes(payload, 'big')
+    if len(payload) != 2 or word & 0x8808:
+        return {}
+    result = {'possible_mode_a':f'{word & 0x7777:04X}', 'spi':bool(word & 0x80)}
+    if not word & 0x81:
+        pulse_order = (4,12,5,13,6,14,None,8,None,9,1,10,2)
+        field = sum(((word >> bit) & 1) << (12-index) for index,bit in enumerate(pulse_order) if bit is not None)
+        altitude = altcode_to_altitude(field)
+        if altitude is not None:
+            result['possible_mode_c_ft'] = altitude
+    return result
 
 @dataclass(frozen=True)
 class Frame:
     data: bytes
     timestamp: int|None = None
-    signal: int = 0
+    signal: int|None = None
+    corrected: int|None = None
     def avr(self):
         prefix='*' if self.timestamp is None else f'@{self.timestamp:012X}'
         return (prefix+self.data.hex().upper()+';\r\n').encode('ascii')
     def beast(self):
         if self.timestamp is None or len(self.data) not in (2,7,14):return None
         code={2:0x31,7:0x32,14:0x33}[len(self.data)]
-        body=self.timestamp.to_bytes(6,'big')+bytes([self.signal])+self.data
+        body=self.timestamp.to_bytes(6,'big')+bytes([self.signal or 0])+self.data
         return b'\x1a'+bytes([code])+body.replace(b'\x1a',b'\x1a\x1a')
 
 class AVRParser:
@@ -22,13 +37,14 @@ class AVRParser:
         self.buffer.extend(data);result=[]
         while b';' in self.buffer:
             i=self.buffer.index(ord(';'));part=bytes(self.buffer[:i+1]);del self.buffer[:i+1]
-            m=re.search(rb'([*@])([A-Fa-f0-9]+);$',part)
+            m=re.search(rb'(?:~([A-Fa-f0-9]{2})([012]))?([*@])([A-Fa-f0-9]+);$',part)
             if not m:continue
-            value=m[2];timestamp=None
-            if m[1]==b'@':
-                if len(value) not in (26,40):continue
+            value=m[4];timestamp=None
+            if m[3]==b'@':
+                if len(value) not in (16,26,40):continue
                 timestamp=int(value[:12],16);value=value[12:]
-            if len(value) in (14,28):result.append(Frame(bytes.fromhex(value.decode()),timestamp))
+            if len(value) in (4,14,28):result.append(Frame(bytes.fromhex(value.decode()),timestamp,
+                int(m[1],16) if m[1] else None,int(m[2]) if m[2] else None))
         if len(self.buffer)>8192:self.buffer.clear()
         return result
 

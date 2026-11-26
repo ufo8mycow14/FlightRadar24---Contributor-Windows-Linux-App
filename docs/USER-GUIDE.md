@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.8.2 · Kieran O'Rourke
+Version 0.9.0 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -127,9 +127,13 @@ Begin with defaults, change one setting at a time, and compare accepted traffic 
 
 ### Apply changes
 
-1. Stop receiver, change the Receiver tab values and Save receiver settings.
-2. Start receiver and compare messages, rejects and range. Check Logs & diagnostics if the decoder rejects an option.
-3. Try better antenna placement before assuming a tuning change can compensate for an unsuitable antenna.
+1. While receiving, keep a complete 60-second baseline on the Receiver tab. Change one setting at a time and compare similar traffic over several minutes. Accepted Mode S per second, app rejects, corrections and strong-frame share describe received messages, not all transmissions. Frame level in dBFS is not RF SNR or a clipping measurement. Missing measurements are unavailable, not zero.
+2. Stop receiver, change the Receiver tab values and Save receiver settings.
+3. Start receiver and compare messages, rejects and range. Check Logs & diagnostics if the decoder rejects an option.
+4. Windows USB bandwidth: leave at 0 for driver default, or request 300–3200 kHz. A narrow filter can distort pulses. Phase enhancement applies at 2.0 MHz only. Windows 2.4 MHz provides frame strength and correction counts; Beast may supply strength, while standard AVR and SBS have no RF levels. Network and serial receivers must be tuned at the source.
+5. Mode A/C replies have neither an aircraft address nor a position; they are counted but never assigned to a plane. GPS and altimeter readings are available only through transmitted ADS-B or Mode S fields. No filed route, 978 MHz UAT, 1030 MHz interrogations or direct sensor data are obtained from a 1090 MHz receiver.
+6. For a private rotating archive set Local message archive above zero (MiB). The message-capture folder in the application data directory contains JSON Lines arrays: Unix reception time, input, message type, hex payload, receiver clock, signal byte and corrected bits. Null means not provided. Anonymous replies append possible Mode A code and, only for valid Gillham patterns, an alternative Mode C pressure altitude; neither is an identified flight. SBS stores original line bytes including the terminator. Capture precedes app validation but follows radio demodulation. Oldest segments expire; dropped entries and disk errors are reported. No archive is uploaded.
+7. Try better antenna placement before assuming a tuning change can compensate for an unsuitable antenna.
 
 <a id="location"></a>
 ## Antenna location, altitude and range
@@ -735,7 +739,7 @@ Checks and downloads contact GitHub, which sees your connection IP address. The 
 <a id="waypoints"></a>
 ## Aviation waypoints on the map
 
-Show or hide an Australian reference layer, inspect points, or import your own newer waypoint data.
+Show or hide worldwide historical waypoints, preview fixes ahead of an aircraft, or import your own newer waypoint data.
 
 ### Show or hide waypoints
 
@@ -744,7 +748,7 @@ Show or hide an Australian reference layer, inspect points, or import your own n
 
 ### Reference date and coverage
 
-The bundle contains 5,185 Australia-region historical fixes from cycle October 2013, including Tasmania and nearby offshore/island areas. The date is shown on the map whenever the layer is enabled. This is not current AIRAC data and is not for navigation.
+The bundle contains 119,716 worldwide historical fixes from cycle October 2013. When waypoints are enabled, hover over or select a moving aircraft for a yellow dotted guide to a plausible fix ahead. The guide follows the reported ground track and updates as the aircraft approaches a fix. It is not a filed route, current AIRAC data or navigation guidance.
 
 The source is Robin A. Peel / FlightGear, GPL version 2 or later. Original notice, exact source URL/hash and geographic subset details are included in the bundled JSON; the GPL text is included alongside it.
 

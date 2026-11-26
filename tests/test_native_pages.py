@@ -92,6 +92,22 @@ class NativePagesTests(unittest.TestCase):
         self.pages.fields[key].setText(text)
         self.pages._edited(key)
 
+    def test_quality_baseline_requires_active_full_minute_and_survives_stop(self):
+        quality = dict(seconds=59,mode_s=10,accepted=9,mode_ac=1,accepted_rate=.2)
+        status = dict(state='receiving',input='usb',quality=quality)
+        self.pages.update_status(status)
+        self.assertFalse(self.pages.baseline_button.isEnabled())
+        quality['seconds'] = 60
+        self.pages.update_status(status)
+        self.pages.baseline_button.click()
+        self.assertIn('1 rejected', self.pages.baseline_summary.text())
+        self.assertIn('unavailable', self.pages.baseline_summary.text())
+        self.pages.update_status(dict(state='stopped'))
+        self.assertFalse(self.pages.baseline_button.isEnabled())
+        self.assertIn('0.2/s', self.pages.baseline_summary.text())
+        self.pages.update_status(dict(state='receiving',input='sbs-tcp'))
+        self.assertIn('decoded text', self.pages.quality_summary.text())
+
     def test_fields_defaults_password_and_input_visibility(self):
         self.assertEqual(set(self.pages.fields), {key for keys in GROUPS.values() for key in keys})
         self.assertTrue(all(self.pages._value(key) == DEFAULT[key] for key in self.pages.fields))

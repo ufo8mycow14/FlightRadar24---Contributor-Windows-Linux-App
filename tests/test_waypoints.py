@@ -5,19 +5,51 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from frw.waypoints import (BUNDLED, WaypointCatalog, WaypointStore, import_points,
-                           read_bounded, validate_points)
+from frw.waypoints import (BUNDLED, WaypointCatalog, WaypointStore, directional_waypoint,
+                           import_points, read_bounded, validate_points)
 
 
 class WaypointTests(unittest.TestCase):
-    def test_bundled_reference_retains_source_cycle_licence_and_adelaide_fixes(self):
+    def test_bundled_world_reference_retains_provenance_and_regional_fixes(self):
         doc=json.loads(BUNDLED.read_text('utf-8'))
         catalog=WaypointCatalog(doc)
         self.assertEqual(doc['licence'],'GPL-2.0-or-later')
         self.assertTrue(catalog.historical)
         self.assertEqual(catalog.cycle,'2013.10')
-        self.assertEqual(len(catalog.points),5185)
+        self.assertEqual(doc['upstream_sha256'],'0be045e8acdcb2cf0656084063d58768976da4cd02902542e1bdb1fe44c23b95')
+        self.assertEqual(doc['source_records'],119720)
+        self.assertEqual(doc['excluded_malformed_records'],4)
+        self.assertEqual(len(catalog.points),119716)
         self.assertGreater(len(list(catalog.visible(137,-36,140,-34))),30)
+        self.assertGreater(len(list(catalog.visible(-124,32,-114,43))),100)
+        self.assertLess(len(list(catalog.nearby(-35,139,100))),len(catalog.points)//10)
+
+    def test_directional_selection_excludes_behind_abeam_and_on_top_and_hands_off(self):
+        catalog=WaypointCatalog({'points':[
+            ['NEAR',0,.12], ['NEXT',0,.24], ['ABOVE',.12,0], ['BEHIND',0,-.05],
+            ['DISTANT',0,2],
+        ]})
+        self.assertEqual(directional_waypoint(catalog,0,0,90).ident,'NEAR')
+        self.assertEqual(directional_waypoint(catalog,0,.11,90).ident,'NEXT')
+        self.assertIsNone(directional_waypoint(WaypointCatalog({'points':[['BEHIND',0,-.05],['ABOVE',.12,0]]}),0,0,90))
+        self.assertIsNone(directional_waypoint(WaypointCatalog({'points':[['DISTANT',0,2]]}),0,0,90))
+        self.assertIsNone(directional_waypoint(catalog,0,0,float('nan')))
+
+    def test_approach_handoff_skips_colocated_identifier_aliases(self):
+        catalog=WaypointCatalog({'points':[
+            ['FIRST',0,.05], ['ALIAS',0,.05], ['NEXT',0,.15],
+        ]})
+        self.assertEqual(directional_waypoint(catalog,0,0,90).ident,'NEXT')
+
+    def test_directional_selection_unwraps_the_dateline(self):
+        east=WaypointCatalog({'points':[['EAST',0,-179.9]]})
+        west=WaypointCatalog({'points':[['WEST',0,179.7]]})
+        self.assertEqual(directional_waypoint(east,0,179.8,90).ident,'EAST')
+        self.assertEqual(directional_waypoint(west,0,-179.8,270).ident,'WEST')
+
+    def test_near_pole_search_includes_all_longitudes(self):
+        catalog=WaypointCatalog({'points':[['POLE-NEAR',89.5,-170],['FAR',70,-170]]})
+        self.assertEqual([point.ident for point in catalog.nearby(89,10,100)],['POLE-NEAR'])
 
     def test_csv_and_fix_formats_deduplicate_only_identical_points(self):
         with tempfile.TemporaryDirectory() as temporary:
@@ -45,6 +77,9 @@ class WaypointTests(unittest.TestCase):
             with patch('frw.waypoints.MAX_BYTES',5):
                 with self.assertRaises(ValueError):read_bounded(path)
             with self.assertRaises(ValueError):validate_points([('TEST',True,139)])
+            with patch('frw.waypoints.MAX_POINTS',1):
+                with self.assertRaisesRegex(ValueError,'1 records'):
+                    validate_points([('ONE',-35,139),('TWO',-36,140)])
             for ident in (None, 123, True):
                 with self.assertRaises(ValueError):validate_points([(ident,-35,139)])
 

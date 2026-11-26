@@ -14,6 +14,7 @@ from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QTool
 from .native_details import NativeAircraftDetails
 from .aircraft_symbols import aircraft_symbol, symbol_radius
 from .native_symbols import draw_aircraft_symbol
+from .waypoints import directional_waypoint
 from .display import (DISPLAY_DEFAULT, aircraft_hover_html, destination_point, is_emergency,
                       map_label_lines, north_offset_deg)
 
@@ -71,6 +72,7 @@ class _MapCanvas(QWidget):
         self.rows = []
         self.conflicts = {}
         self._hover_icao = ''
+        self._guide_hover_icao = ''
         self._hover_point = None
         self._hover_waypoint = None
         self.waypoint_catalog = None
@@ -86,6 +88,9 @@ class _MapCanvas(QWidget):
         self._flash_timer.setInterval(600)
         self._flash_timer.timeout.connect(self._tick_flash)
         self._flash_timer.start()
+        self._guide_expiry_timer = QTimer(self)
+        self._guide_expiry_timer.setSingleShot(True)
+        self._guide_expiry_timer.timeout.connect(self.update)
         self._tiles = OrderedDict()
         self._failed = {}
         self._inflight = {}
@@ -239,6 +244,7 @@ class _MapCanvas(QWidget):
         self._needed = needed
         painter.setClipRect(self.rect())
         self._draw_waypoints(painter)
+        self._draw_waypoint_guide(painter)
         for row in sorted(self.rows, key=lambda row: row.get('icao') == self.selected):
             chosen = row.get('icao') == self.selected
             trail = [point for point in row.get('trail', [])
@@ -372,6 +378,63 @@ class _MapCanvas(QWidget):
             if delta.x()**2+delta.y()**2 <= 64 or box.contains(position):
                 return waypoint
         return None
+
+    def _draw_waypoint_guide(self, painter):
+        if not self.display.get('aviation_waypoints', False) or self.waypoint_catalog is None:
+            self._guide_expiry_timer.stop()
+            return
+        icao = self._guide_hover_icao or self.selected
+        row = next((row for row in self.rows if row.get('icao') == icao), None)
+        if row is None or row.get('on_ground') is True:
+            self._guide_expiry_timer.stop()
+            return
+        field_times = row.get('field_times') or {}
+        try:
+            now = time.time()
+            position_ages = (now - float(field_times['latitude']), now - float(field_times['longitude']))
+            track_age = now - float(field_times['track'])
+        except (KeyError, TypeError, ValueError, OverflowError):
+            self._guide_expiry_timer.stop()
+            return
+        if (not all(math.isfinite(age) and 0 <= age <= 30 for age in position_ages) or
+                not math.isfinite(track_age) or not 0 <= track_age <= 15):
+            self._guide_expiry_timer.stop()
+            return
+        target = directional_waypoint(self.waypoint_catalog, row['latitude'], row['longitude'], row.get('track'))
+        if target is None:
+            self._guide_expiry_timer.stop()
+            return
+        expiry = min(float(field_times['latitude']) + 30,
+                     float(field_times['longitude']) + 30,
+                     float(field_times['track']) + 15)
+        self._guide_expiry_timer.start(max(1, math.ceil((expiry - now) * 1000)))
+        origin = self._screen(row['latitude'], row['longitude'])
+        origin_x, _ = _project(row['latitude'], row['longitude'])
+        origin_x = _nearby(origin_x, self.center.x())
+        target_x, target_y = _project(target.latitude, target.longitude)
+        target_x = _nearby(target_x, origin_x)
+        destination = QPointF((target_x - self.center.x()) * self.world_size + self.width() / 2,
+                              (target_y - self.center.y()) * self.world_size + self.height() / 2)
+        painter.save()
+        painter.setPen(QPen(QColor('#5b4300'), 4, Qt.PenStyle.DotLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(origin, destination)
+        painter.setPen(QPen(QColor('#ffd229'), 2, Qt.PenStyle.DotLine, Qt.PenCapStyle.RoundCap))
+        painter.drawLine(origin, destination)
+        if QRectF(origin, destination).normalized().intersects(QRectF(self.rect())):
+            label = f'Directional suggestion · not filed route · {target.ident}'
+            font = QFont('Segoe UI', 8)
+            painter.setFont(font)
+            width = painter.fontMetrics().horizontalAdvance(label) + 12
+            label_box = QRectF((origin.x() + destination.x()) / 2 - width / 2,
+                               (origin.y() + destination.y()) / 2 - 20, width, 20)
+            label_box.translate(max(0, -label_box.left()) + min(0, self.width() - label_box.right()),
+                                max(0, -label_box.top()) + min(0, self.height() - label_box.bottom()))
+            painter.setPen(QPen(QColor('#8b6900'), 1))
+            painter.setBrush(QColor(255, 248, 210, 235))
+            painter.drawRoundedRect(label_box, 3, 3)
+            painter.setPen(QColor('#392b00'))
+            painter.drawText(label_box, Qt.AlignmentFlag.AlignCenter, label)
+        painter.restore()
 
     def _draw_range_rings(self, painter):
         """Dotted 50-unit range rings around the antenna, replacing the old radar box."""
@@ -508,11 +571,16 @@ class _MapCanvas(QWidget):
         else:
             hit = self._hit_aircraft(event.position())
             waypoint = self._hit_waypoint(event.position())
+            previous_guide_hover = self._guide_hover_icao
             if ((self._hover_icao and hit != self._hover_icao) or
                     (self._hover_waypoint and waypoint != self._hover_waypoint)):
-                self._hide_hover()
+                self._hide_hover(update=False)
             self._hover_point = event.position()
+            self._guide_hover_icao = hit
             self.setCursor(Qt.CursorShape.PointingHandCursor if hit or waypoint else Qt.CursorShape.OpenHandCursor)
+            if (previous_guide_hover != hit and self.display.get('aviation_waypoints', False)
+                    and self.waypoint_catalog is not None):
+                self.update()
             super().mouseMoveEvent(event)
 
     def _hit_aircraft(self, position):
@@ -522,16 +590,23 @@ class _MapCanvas(QWidget):
                 return icao
         return ''
 
-    def _hide_hover(self):
+    def _hide_tooltip(self):
         if self._hover_icao or self._hover_waypoint:
             QToolTip.hideText()
         self._hover_icao = ''
         self._hover_waypoint = None
+
+    def _hide_hover(self, update=True):
+        guide_changed = bool(self._guide_hover_icao)
+        self._hide_tooltip()
         self._hover_point = None
+        self._guide_hover_icao = ''
+        if update and guide_changed:
+            self.update()
 
     def _refresh_hover(self):
         if self._press is not None or self._hover_point is None:
-            self._hide_hover()
+            self._hide_tooltip()
             return
         icao = self._hit_aircraft(self._hover_point)
         row = next((r for r in self.rows if r.get('icao') == icao), None) if self.display.get('aircraft_hover',True) else None
@@ -547,7 +622,7 @@ class _MapCanvas(QWidget):
             QToolTip.showText(self.mapToGlobal(self._hover_point.toPoint()),text,self)
             return
         if row is None or (self._hover_icao and self._hover_icao != icao):
-            self._hide_hover()
+            self._hide_tooltip()
             return
         self._hover_icao = icao
         self._hover_waypoint = None

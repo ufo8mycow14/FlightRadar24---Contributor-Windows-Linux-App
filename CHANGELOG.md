@@ -1,5 +1,11 @@
 # Changes
 
+## 0.9.0
+
+- Worldwide historical waypoints and a yellow dotted heading-based guide on aircraft hover or selection. The guide advances toward nearby fixes; it is not a filed route.
+- Receiver: compare full-minute quality samples, select supported RF/decoder settings for each input, and optionally rotate a private raw message archive.
+- Decode anonymous Mode A/C replies alongside Mode S at both Windows sample rates. Expose additional operational status and optional inferred weather fields without mapping anonymous replies or ambiguous data.
+
 ## 0.8.2
 
 - Statistics → Aircraft encounters and its CSV show when a callsign was last received, local calendar days since, and the number of separate encounters with that aircraft across retained history. Older callsign dates are marked approximate.

@@ -7,7 +7,7 @@
   #define SetupOutput "..\work\installer-dist"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.8.2"
+  #define AppVersion "0.9.0"
 #endif
 #ifndef PublicRelease
   #define PublicRelease 0

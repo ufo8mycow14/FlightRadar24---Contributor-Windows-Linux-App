@@ -51,21 +51,98 @@
  
        /* Compute message receive time as block-start-time + difference in the 12MHz clock
         */
+@@ -519,6 +519,9 @@
+ 
+   }  /* for (j = 0; j < mlen; j++) */
+ 
++  if (Modes.mode_AC)
++     demod_2400_AC (mag);
++
+   /* Update noise power if measured
+    */
+   if (Modes.measure_noise)
+--- a/src/demod-2400AC.c
++++ b/src/demod-2400AC.c
+@@ -7,7 +7,6 @@
+ /**\file    demod-2400AC.c
+  * \ingroup Demodulators
+  * \brief   2.4 MHz Mode-AC detection and decoding.
+- * \note    Not used t the moment
+  */
+ #include "misc.h"
+ #include "demod.h"
+@@ -31,10 +30,20 @@
+ 
+   memset (&mm, 0, sizeof(mm));
+ 
+-  double   noise_stddev = sqrt (mag->mean_power - mag->mean_level * mag->mean_level);
+-  unsigned noise_level = (unsigned) ((mag->mean_power + noise_stddev) * 65535 + 0.5);
+-
+-  for (f1_sample = 1; f1_sample < mlen; f1_sample++)
++  if (!mlen || mag->overlap < 72)
++     return;
++  uint64_t sum = 0, squares = 0;
++  for (uint32_t index = mag->overlap; index < mag->valid_length; ++index)
++  {
++     uint64_t level = m[index];
++     sum += level;
++     squares += level * level;
++  }
++  double mean = (double)sum / mlen;
++  double variance = fmax(0.0, (double)squares / mlen - mean * mean);
++  unsigned noise_level = (unsigned) fmax(1.0, mean + sqrt(variance));
++
++  for (f1_sample = 1; f1_sample <= mlen; f1_sample++)
+   {
+      /*
+       * Mode A/C messages should match this bit sequence:
+@@ -105,7 +114,7 @@
+      float    f1a_power = (float)m[f1_sample] * m[f1_sample];
+      float    f1b_power = (float)m[f1_sample+1] * m[f1_sample+1];
+      float    fraction  = f1b_power / (f1a_power + f1b_power);
+-     unsigned f1_clock  = (unsigned) (25 * (f1_sample + fraction * fraction) + 0.5);
++     unsigned f1_clock  = 25 * f1_sample + (unsigned) fmaxf(0, 27 * fraction - 1 + 0.5f);
+ 
+      /* same again for F2:
+       * F2 is 20.3us / 14 bit periods after F1
+@@ -130,7 +139,7 @@
+      }
+ 
+      unsigned f1f2_level = (f1_level > f2_level ? f1_level : f2_level);
+-     float    midpoint = sqrtf (noise_level * f1f2_level); /* geometric mean of the two levels */
++     float    midpoint = sqrtf ((float)noise_level * f1f2_level); /* geometric mean of the two levels */
+      unsigned signal_threshold = (unsigned) (midpoint * M_SQRT2 + 0.5);  /* +3dB */
+      unsigned noise_threshold  = (unsigned) (midpoint / M_SQRT2 + 0.5);  /* -3dB */
+ 
+@@ -208,7 +217,9 @@
+       /* For consistency with how the Beast / Radarcape does it,
+        * we report the timestamp at the second framing pulse (F2)
+        */
+-      mm.timestamp_msg = mag->sample_timestamp + f2_clock / 5;  /* 60MHz -> 12MHz */
++      if (mag->sample_timestamp + f2_clock / 5 < mag->overlap * 5ULL)
++         continue;
++      mm.timestamp_msg = mag->sample_timestamp + f2_clock / 5 - mag->overlap * 5ULL;
+ 
+       /* compute message receive time as block-start-time + difference in the 12MHz clock
+        */
 --- a/src/dump1090.c
 +++ b/src/dump1090.c
-@@ -128,8 +128,11 @@
+@@ -128,8 +128,14 @@
  static bool sample_rate_set  = false;
  static bool strip_level_set  = false;
  static bool max_messages_set = false;
 +/* Flight Radar Windows: keep the receiver's 12 MHz sample clock for MLAT. */
 +static bool raw_timestamps = false;
++static bool raw_quality = false;
  
  static const cfg_table config[] = {
 +    { "raw-timestamps",          ARG_ATOB,    (void*) &raw_timestamps },
++    { "raw-quality",             ARG_ATOB,    (void*) &raw_quality },
++    { "mode-ac",                 ARG_ATOB,    (void*) &Modes.mode_AC },
      { "adsb-fi-max-distance",    ARG_FUNC,    (void*) adsb_fi_max_distance },
      { "adsb-fi-print-non-icao",  ARG_FUNC,    (void*) adsb_fi_print_non_icao },
      { "adsb-fi-print-old",       ARG_FUNC,    (void*) adsb_fi_print_old },
-@@ -1207,6 +1210,8 @@
+@@ -1207,6 +1213,8 @@
    {
      out_buf->flags   = MAGBUF_DISCONTINUOUS;
      out_buf->dropped = dropped;
@@ -74,7 +151,7 @@
    }
  
    dropped = 0;
-@@ -3094,8 +3099,17 @@
+@@ -3094,8 +3102,24 @@
    size_t left = sizeof(buf);
    int    i;
  
@@ -82,6 +159,13 @@
 -  left--;
 +  if (Modes.raw && raw_timestamps)
 +  {
++    if (raw_quality && mm->msg_type != 32 && Modes.demod_func == demod_2400)
++    {
++      unsigned level = (unsigned)(sqrt(fmin(1.0, fmax(0.0, mm->sig_level))) * 255.0 + 0.5);
++      int prefix = snprintf (p, left, "~%02X%d", level, mm->error_bits);
++      p += prefix;
++      left -= prefix;
++    }
 +    int n = snprintf (p, left, "@%012llX", (unsigned long long)(mm->timestamp_msg & 0xFFFFFFFFFFFFULL));
 +    p += n;
 +    left -= n;
@@ -94,7 +178,7 @@
  
    for (i = 0; i < mm->msg_bits / 8 && left > 5; i++)
    {
-@@ -4535,6 +4549,23 @@
+@@ -4535,6 +4559,23 @@
    bool init_error = true;   /* assume some 'x_init()' failure */
    int  rc;
  

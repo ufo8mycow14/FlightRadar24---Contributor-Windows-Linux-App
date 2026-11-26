@@ -1,10 +1,11 @@
 """Receiver lifecycle and the unchanged official Flightradar24 feeder."""
 from __future__ import annotations
 import collections, datetime, ipaddress, json, logging, logging.handlers, os, platform, re
-import shutil, socket, ssl, subprocess, threading, time
+import math, shutil, socket, ssl, subprocess, threading, time
 import signal
 from pathlib import Path
 from .aircraft import Aircraft
+from .capture import MessageCapture
 from .activity import ActivityService
 from .config import ConfigError, format_ini, parse_ini
 from .platform_support import key_storage_description
@@ -93,6 +94,8 @@ def linux_decoder_argv(decoder: Path, c: dict, beast_port: int) -> list[str]:
                 '--freq', '1090000000', '--ppm', str(c['ppm']), '--net',
                 '--net-bind-address', '127.0.0.1', '--net-ri-port', '0', '--net-ro-port', '0',
                 '--net-sbs-port', '0', '--net-bi-port', '0', '--net-bo-port', str(beast_port)]
+    if c.get('mode_ac', True): argv.append('--modeac')
+    if c['receiver'] == 'usb' and c['agc']: argv.append('--enable-agc')
     if c['error_correction'] == 0:
         argv.append('--no-fix')
     else:
@@ -170,7 +173,7 @@ def decoder_config(c):
     values = {
         'homepos':f"{c['latitude'] or 0},{c['longitude'] or 0}", 'location':'false',
         'aircrafts':'NUL', 'airports':'NUL', 'prefer-adsb-lol':'false', 'logfile':'NUL',
-        'raw-timestamps':'true', 'loops':0, 'freq':'1090M',
+        'raw-timestamps':'true', 'raw-quality':'true', 'mode-ac':str(c.get('mode_ac',True)).lower(), 'loops':0, 'freq':'1090M',
         'samplerate':c['sample_rate'], 'gain':'auto' if c['gain'] == -10 else c['gain'],
         'rtlsdr-ppm':c['ppm'], 'max-distance':round(c['range_nm']*1852),
         'agc':str(c['agc']).lower(), 'bias-t':str(c['bias_tee']).lower(),
@@ -180,7 +183,70 @@ def decoder_config(c):
         'interactive-ttl':c['aircraft_ttl'], 'speech-enable':'false',
     }
     if c['latitude'] is None: values.pop('homepos')
+    if c['receiver']=='usb' and c.get('bandwidth_khz'): values['rtlsdr-bandwidth']=c['bandwidth_khz']*1000
     return ''.join(f'{k}={v}\n' for k,v in values.items())
+
+class ReceptionQuality:
+    def __init__(self, config=None):
+        self.lock = threading.Lock()
+        self.started = time.monotonic()
+        self.next_summary = self.started + 60
+        self.buckets = collections.deque(maxlen=60)
+        self.settings = ''
+        self.reported_gain = None
+        self.gain_steps = ()
+        self.device_index = config['device'] if config and config['receiver'] == 'usb' else None
+        if config and config['receiver'] in ('iq-file', 'usb'):
+            parts = [f"{config['sample_rate']/1e6:g} MHz", f"CRC fix {config['error_correction']}",
+                     f"A/C {'on' if config['mode_ac'] else 'off'}"]
+            if config['receiver'] == 'usb':
+                parts.extend(['requested gain auto' if config['gain']==-10 else f"requested {config['gain']:g} dB",
+                              f"{config['ppm']} ppm", f"AGC {'on' if config['agc'] else 'off'}"])
+                if os.name == 'nt':
+                    parts.extend([f"BW {config['bandwidth_khz']} kHz" if config['bandwidth_khz'] else 'BW default',
+                                  f"bias tee {'on' if config['bias_tee'] else 'off'}"])
+            if os.name == 'nt':
+                parts.append(f"DC filter {'on' if config['dc_filter'] else 'off'}")
+                if config['sample_rate'] == 2000000:
+                    parts.append(f"phase {'on' if config['phase_enhance'] else 'off'}")
+            self.settings = ', '.join(parts)
+
+    def observe(self, frame, accepted):
+        second = int(time.monotonic())
+        with self.lock:
+            if not self.buckets or self.buckets[-1][0]!=second:
+                self.buckets.append((second,collections.Counter()))
+            counts = self.buckets[-1][1]
+            if len(frame.data)==2:
+                counts['mode_ac'] += 1
+                return
+            counts['mode_s'] += 1
+            counts['accepted'] += int(accepted)
+            if frame.corrected is not None:
+                counts['measured_corrections'] += 1
+                if frame.corrected: counts['corrected'] += 1
+                elif accepted: counts['accepted_without_correction'] += 1
+            if frame.signal:
+                counts['levels'] += 1
+                counts['power'] += (frame.signal/255)**2
+                counts['strong'] += int(frame.signal>=181)
+
+    def snapshot(self):
+        now = time.monotonic()
+        with self.lock:
+            totals = collections.Counter()
+            for second, bucket in self.buckets:
+                if second>int(now)-60: totals.update(bucket)
+            duration = min(60,max(.001,now-self.started))
+            return {'seconds':int(duration),'settings':self.settings,'reported_gain':self.reported_gain,
+                    'gain_steps':self.gain_steps,'device_index':self.device_index,
+                    'mode_s':totals['mode_s'],'accepted':totals['accepted'],
+                    'mode_ac':totals['mode_ac'],'accepted_rate':round(totals['accepted']/duration,2),
+                    'clean_rate':round(totals['accepted_without_correction']/duration,2)
+                        if totals['mode_s'] and totals['measured_corrections']==totals['mode_s'] else None,
+                    'mean_dbfs':round(10*math.log10(totals['power']/totals['levels']),1) if totals['levels'] else None,
+                    'strong_pct':round(100*totals['strong']/totals['levels'],1) if totals['levels'] else None,
+                    'corrected_pct':round(100*totals['corrected']/totals['measured_corrections'],1) if totals['measured_corrections'] else None}
 
 class Receiver:
     def __init__(self, settings, bundle):
@@ -194,22 +260,27 @@ class Receiver:
         self.state = 'stopped'; self.error = ''; self.started = None
         self.aircraft = Aircraft(settings.value); self.outputs = {}; self.feed_stream = None
         self.last_frame = None; self.frames = 0
+        self.capture = None
+        self.quality = ReceptionQuality()
         self.feeder = Feeder(self)
     def start(self):
         with self.lock:
             if self.thread and self.thread.is_alive(): raise ConfigError('The receiver is already running.')
             if self.feeder.signup_process and self.feeder.signup_process.poll() is None: raise ConfigError('Finish or cancel registration before starting reception.')
             c = dict(self.settings.value)
-            if c['receiver'] in ('usb','iq-file') and not (self.bundle/'decoder/dump1090.exe').is_file():
-                raise ConfigError('The bundled Windows decoder is missing. Extract the complete package again.')
+            if c['receiver'] in ('usb','iq-file'):
+                decoder_executable(self.bundle)
             if c['receiver'] == 'iq-file' and not Path(c['iq_file']).is_file():
                 raise ConfigError('Choose an existing unsigned 8-bit I/Q recording (.uc8).')
             if c['feed_enabled'] and not self.settings.key():
                 raise ConfigError('Enter your Flightradar24 sharing key, or turn off uploading for local reception.')
             self.stop_event.clear(); self.error = ''; self.frames = 0; self.last_frame = time.time()
             self.aircraft = Aircraft(c, self.activity.submit); self.outputs = {}
+            self.thread = None
+            self.capture = None
             try:
                 self.activity.start(c)
+                self.capture = MessageCapture(self.directory,c['capture_mb'],c['receiver'])
                 for name in ('raw','bs','beast'):
                     if c[name]: self.outputs[name] = Broadcast(c['bind_interface'], c[name+'_port'])
                 self.feed_stream = Broadcast('127.0.0.1', 0) if c['feed_enabled'] else None
@@ -234,12 +305,15 @@ class Receiver:
             try: process.wait(4)
             except subprocess.TimeoutExpired: process.kill(); process.wait(2)
         thread = self.thread
-        if thread and thread is not threading.current_thread(): thread.join(6)
+        if thread and thread.ident is not None and thread is not threading.current_thread(): thread.join(10)
+        if thread and thread.is_alive():
+            raise ConfigError('The receiver is still stopping. Wait before changing settings.')
         for output in self.outputs.values(): output.close()
         self.outputs = {}
         if self.feed_stream: self.feed_stream.close(); self.feed_stream = None
         self.state = 'stopped'; self.log.add('app', 'Receiver stopped.')
         self.activity.stop()
+        if self.capture and (thread is None or thread.ident is None): self.capture.close()
     def _activity_runtime(self):
         monitor = self.feeder.snapshot().get('monitor') or {}
         try:
@@ -250,18 +324,35 @@ class Receiver:
         return self.frames,self.aircraft.rejected,sent_time,sent_count
     def _frame(self, frame):
         self.last_frame = time.time(); self.frames += 1
-        sbs = self.aircraft.frame(frame)
+        legacy = len(frame.data)==2
+        if self.capture:
+            self.capture.submit(self.last_frame,'mode-ac' if legacy else 'mode-s',frame.data,
+                                frame.timestamp,frame.signal,frame.corrected)
+        sbs = None if legacy else self.aircraft.frame(frame)
+        self.quality.observe(frame, sbs is not None)
+        now = time.monotonic()
+        if now >= self.quality.next_summary:
+            self.quality.next_summary = now + 60
+            report = self.quality.snapshot()
+            totals = self.capture.status() if self.capture else {}
+            self.log.add('reception-quality', json.dumps({
+                'seconds':report['seconds'],'mode_s':report['mode_s'],'accepted':report['accepted'],
+                'mode_ac':report['mode_ac'],'accepted_rate':report['accepted_rate'],'clean_rate':report['clean_rate'],
+                'mean_dbfs':report['mean_dbfs'],'strong_pct':report['strong_pct'],'corrected_pct':report['corrected_pct'],
+                'archived':totals.get('written',0),'archive_dropped':totals.get('dropped',0)
+            },separators=(',',':')))
         # Forward valid and undecoded Mode-S frames; the official feeder validates its own data.
         if 'raw' in self.outputs: self.outputs['raw'].publish(frame.avr())
         if 'beast' in self.outputs: self.outputs['beast'].publish(frame.beast())
         if 'bs' in self.outputs: self.outputs['bs'].publish(sbs)
         feed_stream = self.feed_stream
-        if feed_stream:
+        if feed_stream and not legacy:
             feed_stream.publish(frame.beast() if self.feed_format == 'beast' else frame.avr())
     def _run(self, c):
         retry = 1
         while not self.stop_event.is_set():
             try:
+                self.quality = ReceptionQuality(c)
                 if c['receiver'] in ('usb','iq-file'): self._native(c)
                 else: self._stream(c)
                 if c['receiver'] == 'iq-file':
@@ -289,6 +380,7 @@ class Receiver:
         for output in outputs.values(): output.close()
         stream,self.feed_stream = self.feed_stream,None
         if stream: stream.close()
+        if self.capture: self.capture.close()
     def _native(self, c):
         if platform.system() == 'Linux':
             return self._native_linux(c)
@@ -312,7 +404,14 @@ class Receiver:
                 frames = parser.feed(line)
                 if frames:
                     for frame in frames: self._frame(frame)
-                elif line.strip(): self.log.add('decoder', line.decode(errors='replace'))
+                elif line.strip():
+                    gain = re.search(rb'Gain reported by device: (AUTO|\d+\.\d+ dB)\.', line)
+                    if gain: self.quality.reported_gain = gain[1].decode()
+                    steps = re.search(rb'Supported gains: ([0-9., -]+)', line)
+                    if steps:
+                        self.quality.gain_steps = tuple(sorted({float(value) for value in
+                            re.findall(rb'-?\d+\.\d+', steps[1]) if 0 <= float(value) <= 60}))
+                    self.log.add('decoder', line.decode(errors='replace'))
             rc = p.wait(4)
             if rc and not self.stop_event.is_set(): raise OSError(f'Decoder exited ({rc}). Check the receiver log and USB device permissions.')
         finally: p.stdout.close()
@@ -412,19 +511,30 @@ class Receiver:
         self.connection = connection; self.state = 'receiving'; self.error = ''; self.last_frame = time.time()
         parser = BeastParser() if c['receiver'].startswith('beast') else AVRParser()
         buffer = bytearray()
+        discard_line = False
         while not self.stop_event.is_set():
             try: data = connection.read(4096) if serial_mode else connection.recv(16384)
             except (socket.timeout, TimeoutError): data = None
             if data == b'' and not serial_mode: raise OSError('Remote receiver closed the connection.')
             if data:
                 if c['receiver']=='sbs-tcp':
+                    if discard_line:
+                        _, end, data = data.partition(b'\n')
+                        discard_line = not end
                     buffer.extend(data)
                     while b'\n' in buffer:
                         line, _, remainder = buffer.partition(b'\n'); buffer = bytearray(remainder)
+                        if len(line) > 65536:
+                            if self.capture: self.capture.discard()
+                            continue
+                        if self.capture: self.capture.submit(time.time(),'sbs',bytes(line)+b'\n')
                         self.aircraft.ingest_sbs(line.decode('ascii',errors='replace'))
                         self.last_frame = time.time(); self.frames += 1
                         if 'bs' in self.outputs: self.outputs['bs'].publish(line+b'\n')
-                    if len(buffer)>65536: buffer.clear()
+                    if len(buffer)>65536:
+                        if self.capture: self.capture.discard()
+                        buffer.clear()
+                        discard_line = True
                 else:
                     for frame in parser.feed(data): self._frame(frame)
             if c['global_timeout'] and time.time()-self.last_frame > c['global_timeout']:
@@ -433,6 +543,7 @@ class Receiver:
         return {'state':self.state, 'error':self.error, 'started':self.started, 'frames':self.frames,
                 'input':self.settings.value['receiver'], 'streams':{k:v.port for k,v in self.outputs.items()},
                 'activity':self.activity.snapshot(),
+                'quality':self.quality.snapshot(), 'capture':self.capture.status() if self.capture else {},
                 'feeder':self.feeder.snapshot(), **self.aircraft.snapshot()}
 
 class Feeder:

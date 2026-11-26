@@ -19,7 +19,7 @@ class WaypointDialog(QDialog):
         layout.addWidget(self.summary)
         text = QLabel('Use WPT on the map or View → Aviation waypoints to show or hide the layer. '
                       'Zoom in for named markers; hover for coordinates and source.\n\n'
-                      'The bundled Australia-region fixes are a historical October 2013 reference, '
+                      'The bundled worldwide fixes are a historical October 2013 reference, '
                       'not current AIRAC data. Import a newer file you are entitled to use if needed. '
                       'Imports stay in this profile and are never uploaded. This layer is not for navigation.')
         text.setWordWrap(True)

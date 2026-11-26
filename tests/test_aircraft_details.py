@@ -57,6 +57,19 @@ class AircraftDetailTests(unittest.TestCase):
         with patch('frw.aircraft.time.time',return_value=now):
             return self.aircraft.detail(ICAO)
 
+    def test_operational_quality_is_version_and_subtype_specific(self):
+        for version, subtype in ((1,0), (2,1), (2,0)):
+            with self.subTest(version=version, subtype=subtype):
+                self.aircraft = Aircraft(validate({}))
+                self.aircraft.frame(wire(bits((0,5,31),(5,3,subtype),(27,1,1),(29,1,1),
+                                              (30,2,2),(40,3,version),(48,2,1))),EPOCH)
+                row = self.row()
+                if version == 2:
+                    self.assertEqual((row['sda'],row['ident_active'],row['single_antenna']), (2,True,True))
+                else:
+                    self.assertNotIn('sda',row)
+                self.assertEqual(row.get('gva'), 1 if (version,subtype)==(2,0) else None)
+
     def test_only_identity_messages_advance_callsign_reception(self):
         observations = []
         self.aircraft.observer = lambda row, stamp: observations.append(row)
@@ -147,6 +160,29 @@ class AircraftDetailTests(unittest.TestCase):
         for field in ('roll','magnetic_heading','selected_altitude_mcp','supported_bds'):
             self.assertNotIn(field,row)
         self.assertIn('header',row['field_sources']['altitude_baro'])
+
+    def test_weather_opt_in_preserves_units_and_identity_category(self):
+        weather = bits((0,4,2),(4,1,1),(5,9,120),(14,9,64),(23,1,1),(24,10,864),
+                       (34,1,1),(35,11,820),(46,1,1),(47,2,2),(49,1,1),(50,6,32))
+        hazard = bits((0,1,1),(1,2,1),(3,1,1),(4,2,1),(6,1,1),(7,2,1),(9,1,1),(10,2,1),
+                      (12,1,1),(13,2,1),(15,1,1),(16,1,1),(17,9,432),(26,1,1),(27,11,820),
+                      (38,1,1),(39,12,61))
+        for enabled in (False,True):
+            self.aircraft = Aircraft(validate({'meteo':enabled}))
+            self.aircraft.frame(identity(),EPOCH)
+            category = self.row().get('wake_vortex')
+            self.aircraft.frame(wire(weather,20),EPOCH+1)
+            row = self.row(EPOCH+1)
+            if enabled:
+                self.assertEqual((row['wind_speed'],row['wind_direction'],row['humidity'],
+                                 row['static_air_temperature'],row['static_pressure']), (120,45,50,-40,820))
+                self.assertIn('inferred weather',row['field_sources']['wind_speed'])
+            else:
+                self.assertNotIn('wind_speed',row)
+            self.aircraft.frame(wire(hazard,20),EPOCH+2)
+            row = self.row(EPOCH+2)
+            self.assertEqual(row.get('wake_vortex'),category)
+            self.assertEqual(row.get('radio_height'),976 if enabled else None)
 
     def test_unambiguous_commb_keeps_target_state_air_and_ground_quantities(self):
         self.aircraft.frame(identity(),EPOCH)
