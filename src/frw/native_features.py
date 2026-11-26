@@ -558,8 +558,19 @@ class FeaturePreferences(QScrollArea):
         for title,key in [('Aviation — feet, knots, nautical miles','aviation'),('Metric — metres, km/h, kilometres','metric')]:self.display_units.addItem(title,key)
         displayform.addRow('Units',self.display_units)
         self.display_labels=QComboBox()
-        for title,key in [('Callsign only','callsign'),('Callsign, altitude and speed','detailed'),('No labels (selected aircraft only)','none')]:self.display_labels.addItem(title,key)
+        for title,key in [('Callsign only','callsign'),('Callsign, altitude and speed','detailed'),('No labels','none'),('Custom fields','custom')]:self.display_labels.addItem(title,key)
         displayform.addRow('Map labels',self.display_labels)
+        self.label_fields={}
+        label_grid=QGridLayout()
+        for i,(key,title) in enumerate([('callsign','Callsign'),('icao','ICAO'),('altitude','Altitude'),('groundspeed','Ground speed'),('track','Track'),('vertical_rate','Vertical rate'),('squawk','Squawk'),('distance','Distance'),('seen','Last message age')]):
+            control=QCheckBox(title);self.label_fields[key]=control;label_grid.addWidget(control,i//2,i%2)
+            control.clicked.connect(lambda _checked: self.display_labels.setCurrentIndex(self.display_labels.findData('custom')))
+            control.setToolTip('Selecting a field switches map labels to Custom fields.')
+        displayform.addRow('Custom label fields',label_grid)
+        self.display_hover=QCheckBox('Show aircraft information on hover');displayform.addRow(self.display_hover)
+        self.display_conflict=QCheckBox('Show estimated conflict alerts');displayform.addRow(self.display_conflict)
+        self.display_conflict_flash=QCheckBox('Flash estimated conflicts');displayform.addRow(self.display_conflict_flash)
+        displayform.addRow(label('Yellow/red estimates need fresh position, pressure altitude and motion data. They are not TCAS or navigation guidance. Height above terrain is unavailable.'))
         self.display_rings=QCheckBox('Show range rings around my antenna on the map');displayform.addRow(self.display_rings)
         self.display_follow=QCheckBox('Keep the selected aircraft centred on the map');displayform.addRow(self.display_follow)
         self.display_cardinals=QCheckBox('Show compass and N/E/S/W cardinal labels');displayform.addRow(self.display_cardinals)
@@ -569,6 +580,7 @@ class FeaturePreferences(QScrollArea):
         displayform.addRow('Bearing & compass reference',self.display_north)
         self.display_variation=QDoubleSpinBox();self.display_variation.setRange(-30,30);self.display_variation.setDecimals(1);self.display_variation.setSingleStep(0.5);self.display_variation.setSuffix('° (east positive)')
         displayform.addRow('Magnetic variation at my antenna',self.display_variation)
+        displayform.addRow(button('Save display settings',self.save_display))
         displayform.addRow(label('Display choices change presentation only. Reception, uploading, filters, alerts and recorded history always use the values as broadcast. Altitude at or above 10,000 ft is also shown as an approximate flight level (FL). Metric values are converted from the broadcast feet/knots; nothing is re-measured. Distance and bearing need your antenna latitude/longitude in receiver settings. The background map is drawn with true north up; choosing Magnetic north rotates the compass, ring cardinals and table bearings by the variation you enter from a current chart for your location — the app does not calculate variation itself. Range rings are dotted every 50 units from your antenna.'))
         layout.addWidget(displaybox)
         storage=QGroupBox('History & disk budget');form=QFormLayout(storage)
@@ -624,6 +636,9 @@ class FeaturePreferences(QScrollArea):
             display=config.get('display') or {}
             self.display_units.setCurrentIndex(max(0,self.display_units.findData(display.get('units','aviation'))))
             self.display_labels.setCurrentIndex(max(0,self.display_labels.findData(display.get('map_labels','callsign'))))
+            selected=set(display.get('map_label_fields',['callsign','altitude','groundspeed']))
+            for key,control in self.label_fields.items():control.setChecked(key in selected)
+            self.display_hover.setChecked(display.get('aircraft_hover',True));self.display_conflict.setChecked(display.get('conflict_enabled',True));self.display_conflict_flash.setChecked(display.get('conflict_flash',True))
             self.display_rings.setChecked(bool(display.get('range_rings',True)));self.display_follow.setChecked(bool(display.get('follow_selected',False)))
             self.display_cardinals.setChecked(bool(display.get('cardinals',True)));self.display_flash.setChecked(bool(display.get('emergency_flash',True)))
             self.display_north.setCurrentIndex(max(0,self.display_north.findData(display.get('north_reference','true'))))
@@ -636,7 +651,7 @@ class FeaturePreferences(QScrollArea):
     def save(self):
         changes={key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in FEATURE_DEFAULT}
         changes['history_enabled']=self.history.isChecked()
-        changes['display']={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),'range_rings':self.display_rings.isChecked(),'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),'emergency_flash':self.display_flash.isChecked(),'north_reference':self.display_north.currentData(),'magnetic_variation':self.display_variation.value()}
+        changes['display']={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),'map_label_fields':[key for key,control in self.label_fields.items() if control.isChecked()],'aircraft_hover':self.display_hover.isChecked(),'conflict_enabled':self.display_conflict.isChecked(),'conflict_flash':self.display_conflict_flash.isChecked(),'range_rings':self.display_rings.isChecked(),'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),'emergency_flash':self.display_flash.isChecked(),'north_reference':self.display_north.currentData(),'magnetic_variation':self.display_variation.value()}
         delivery=copy.deepcopy(self.model.value['delivery'])
         delivery.update({key:(control.value() if isinstance(control,QSpinBox) else control.text().strip()) for key,control in self.fields.items() if key in delivery})
         delivery.update(email_enabled=self.email_enabled.isChecked(),webhook_enabled=self.webhook_enabled.isChecked(),smtp_tls=self.tls.currentData(),webhook_kind=self.webkind.currentData())
@@ -652,6 +667,16 @@ class FeaturePreferences(QScrollArea):
             self.webhook_enabled.setChecked(self.model.value['delivery']['webhook_enabled'])
             self.clear_secrets.setChecked(False)
         self.model.save(changes,secrets or None,on_saved=saved)
+
+    def save_display(self):
+        display={'units':self.display_units.currentData(),'map_labels':self.display_labels.currentData(),
+                 'map_label_fields':[key for key,control in self.label_fields.items() if control.isChecked()],
+                 'aircraft_hover':self.display_hover.isChecked(),'conflict_enabled':self.display_conflict.isChecked(),
+                 'conflict_flash':self.display_conflict_flash.isChecked(),'range_rings':self.display_rings.isChecked(),
+                 'follow_selected':self.display_follow.isChecked(),'cardinals':self.display_cardinals.isChecked(),
+                 'emergency_flash':self.display_flash.isChecked(),'north_reference':self.display_north.currentData(),
+                 'magnetic_variation':self.display_variation.value()}
+        self.model.save({'display':display})
 
     def external_test(self):
         self.feedback.setText('Sending a labelled external test using saved delivery settings…')

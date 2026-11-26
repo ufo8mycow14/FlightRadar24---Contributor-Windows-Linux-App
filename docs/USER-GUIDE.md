@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.6.3 · Kieran O'Rourke
+Version 0.7.0 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -179,6 +179,20 @@ Airspace is a near-full-screen worldwide map. Reception and sharing status run a
 OpenStreetMap background tiles require internet access and have a separate 64 MiB cache. Attribution stays visible in the bottom bar at the right. The tile provider sees map-area requests and your IP address, not your aircraft payload or sharing key.
 
 Range rings, the compass and aircraft positions work without map tiles. Track lines are recent session observations, not a reconstructed full route. Stale or missing positions are not current aircraft locations.
+
+### Choose aircraft labels and hover details
+
+1. Open View → Map labels & conflict display, or Receiver & settings → Storage & alerts → Display & units.
+2. Choose Custom map labels. Tick callsign, ICAO, altitude, ground speed, track, vertical rate, squawk, antenna distance and last-seen age individually. Save display settings applies only display preferences. Callsign/detailed/hidden presets remain available.
+3. Hover over an aircraft or its label to see more available broadcast information, position, measurement source and age. Click opens the full details panel. Hover can be switched off independently. Missing registration, routes or other database information is not invented.
+
+### Yellow and red estimated conflicts
+
+Both aircraft flash yellow for a predicted close approach and red for the shorter, tighter proximity window. Emergency broadcasts retain red priority. Table rows and the selected details panel describe the estimate. The enable and flashing switches are independent; flashing off leaves a steady warning colour.
+
+Estimates require airborne status, coordinates, barometric altitude, ground speed, true track and barometric vertical rate no more than five seconds old. Both horizontal and vertical proximity must occur at the same time. Missing, stale and ground observations count as unassessed, not safe. All received aircraft are checked, including partners hidden by filters.
+
+TCAS II reference thresholds vary with altitude: caution timing is 20–48 seconds and resolution advisory timing is 15–35 seconds. This app uses a simplified proximity prediction, not TCAS tracking or advisory logic. Below 5,000 ft pressure altitude it uses a documented 25/15-second fallback because height above terrain is unavailable. These ground-display estimates must not be used for navigation or separation decisions and give no manoeuvre instructions. See docs/CONFLICT-ALERTS.md for the complete thresholds and FAA/EUROCONTROL sources.
 
 ### Display units, labels, rings and north reference
 

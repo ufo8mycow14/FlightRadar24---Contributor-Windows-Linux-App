@@ -77,6 +77,32 @@ class UsbDriverSetupTests(unittest.TestCase):
                       [(item['interface'], item['status']) for item in report['devices']])
         self.assertEqual(report['ignored_device_count'], 1)
 
+    def test_single_interface_2832_is_supported_but_composite_parents_are_not(self):
+        device = pnp(r'USB\VID_0BDA&PID_2832\single', problem=28, status='Error')
+        device['CompatibleIds'] = [r'USB\COMPAT_VID_0BDA&Class_FF&SubClass_FF&Prot_FF']
+        self.assertEqual(self.scan([device])['devices'][0]['status'], 'needs_driver')
+        ready = dict(device, Service='WinUSB', ProblemCode=0, Status='OK')
+        self.assertEqual(self.scan([ready])['devices'][0]['status'], 'ready')
+        for parent in (dict(device, Service='usbccgp'),
+                       dict(device, CompatibleIds=[r'USB\COMPOSITE']),
+                       dict(device, Children=['child']),
+                       dict(device, CompatibleIds=[]),
+                       dict(device, InstanceId=r'USB\VID_0BDA&PID_2838\parent')):
+            self.assertEqual(self.scan([parent])['devices'][0]['status'], 'skipped_parent')
+        duplicate = dict(device, InstanceId=r'USB\VID_0BDA&PID_2832\another')
+        self.assertEqual([x['status'] for x in self.scan([device, duplicate])['devices']],
+                         ['manual_required', 'manual_required'])
+
+    def test_single_interface_arguments_never_generate_a_composite_inf(self):
+        instance = r'USB\VID_0BDA&PID_2832\single'
+        fixture = {'output_directory': r'C:\Temp\driver',
+                   'target': {'vid': '0BDA', 'pid': '2832', 'instance_id': instance,
+                              'non_composite': True}}
+        args = self.run_script('-TestWdiArgumentsBase64', encode(fixture))['arguments']
+        self.assertIn('frw-rtl2832.inf', args)
+        self.assertEqual(args[-2:], ['--single-interface', '1'])
+        self.assertIn(instance, args)
+
     def test_healthy_winusb_stays_and_duplicate_selector_requires_manual_action(self):
         healthy = pnp(r'USB\VID_0BDA&PID_2838&MI_00\working', service='WinUSB', problem=0)
         missing = pnp(r'USB\VID_0BDA&PID_2838&MI_00\other-device', service=None, problem=28, status='Error')

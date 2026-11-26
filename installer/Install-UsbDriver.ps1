@@ -39,6 +39,12 @@ function Get-InventoryFromDevices([object[]]$Devices) {
         $rtlProduct = ('{0}:{1}' -f $vid,$productId) -in @('0BDA:2832','0BDA:2838')
         if (-not $rtlProduct) { $ignored++; continue }
 
+        $singleInterface = $null -eq $mi -and $productId -eq '2832' -and
+            [string]$device.Service -ne 'usbccgp' -and
+            @($device.CompatibleIds | Where-Object { $_ -match '^USB\\(?:COMPAT_VID_0BDA&)?Class_FF(?:&|$)' }).Count -gt 0 -and
+            @($device.CompatibleIds | Where-Object { $_ -eq 'USB\COMPOSITE' }).Count -eq 0 -and
+            @($device.Children | Where-Object { $_ }).Count -eq 0
+        if ($singleInterface) { $mi = '00'; $identity = '{0}:{1}:00' -f $vid,$productId }
         if ($null -eq $mi) {
             $records += [pscustomobject]@{ vid=$vid; pid=$productId; interface=$null; status='skipped_parent'; reason='Composite parent is managed by Windows.'; service=[string]$device.Service; problem_code=$null; driver_provider=$null }
             continue
@@ -79,7 +85,7 @@ function Get-InventoryFromDevices([object[]]$Devices) {
         } else {
             $status = 'manual_required'; $reason = 'The interface state is unclear; setup will not change its driver.'
         }
-        $records += [pscustomobject]@{ vid=$vid; pid=$productId; interface=0; status=$status; reason=$reason; service=$service; problem_code=$problem; driver_provider=$provider; instance_id=$instanceId }
+        $records += [pscustomobject]@{ vid=$vid; pid=$productId; interface=0; non_composite=$singleInterface; status=$status; reason=$reason; service=$service; problem_code=$problem; driver_provider=$provider; instance_id=$instanceId }
     }
 
     # libwdi's VID/PID/interface selector cannot distinguish two attached
@@ -108,7 +114,9 @@ function Get-LiveInventory {
         $service = Get-DevicePropertyValue $properties 'DEVPKEY_Device_Service'
         $provider = Get-DevicePropertyValue $properties 'DEVPKEY_Device_DriverProvider'
         $problem = Get-DevicePropertyValue $properties 'DEVPKEY_Device_ProblemCode'
-        [pscustomobject]@{ Class=$pnpDevice.Class; Status=[string]$pnpDevice.Status; InstanceId=$pnpDevice.InstanceId; Service=$service; DriverProvider=$provider; ProblemCode=$problem }
+        $compatible = Get-DevicePropertyValue $properties 'DEVPKEY_Device_CompatibleIds'
+        $children = Get-DevicePropertyValue $properties 'DEVPKEY_Device_Children'
+        [pscustomobject]@{ Class=$pnpDevice.Class; Status=[string]$pnpDevice.Status; InstanceId=$pnpDevice.InstanceId; Service=$service; DriverProvider=$provider; ProblemCode=$problem; CompatibleIds=$compatible; Children=$children }
     })
     return Get-InventoryFromDevices $devices
 }
@@ -188,7 +196,7 @@ function Get-DriverPackage([string]$Root) {
             return [pscustomobject]@{ available=$false; error='Bundled USB driver helper signature is not valid.'; helper=$null; supported_ids=$supported }
         }
     }
-    return [pscustomobject]@{ available=($supported.Count -gt 0); error=$null; helper=$helper; supported_ids=$supported }
+    return [pscustomobject]@{ available=($supported.Count -gt 0); error=$null; helper=$helper; supported_ids=$supported; single_interface_2832=($manifest.single_interface_2832 -is [bool] -and $manifest.single_interface_2832) }
 }
 
 function Write-SetupReport($Report) {
@@ -239,6 +247,9 @@ function ConvertTo-Win32Argument([string]$Argument) {
 }
 
 function Get-WdiArguments($Target, [string]$OutputDirectory) {
+    if ($Target.non_composite) {
+        return [string[]]@('-v','0x0BDA','-p','0x2832','-i','0','-t','0','-d',$OutputDirectory,'-f','frw-rtl2832.inf','--instance-id',$Target.instance_id,'--single-interface','1')
+    }
     $infName = if ($Target.pid -eq '2838') { 'frw-rtl2838-mi00.inf' } else { 'frw-rtl2832-mi00.inf' }
     $vendor = '0x{0}' -f $Target.vid
     $product = '0x{0}' -f $Target.pid
@@ -265,6 +276,7 @@ function Invoke-DriverHelper($Package, $Target) {
     }
     $id = ('{0}:{1}:00' -f $Target.vid,$Target.pid)
     if ($Package.supported_ids -notcontains $id) { return [pscustomobject]@{ status='failed'; error='The bundled driver does not support this USB interface.' } }
+    if ($Target.non_composite -and -not $Package.single_interface_2832) { return [pscustomobject]@{ status='failed'; error='This single-interface RTL2832U needs an updated offline driver helper.' } }
 
     # Recheck the exact instance before launching because PnP state can change.
     # The instance ID remains internal and is never written to setup reports.

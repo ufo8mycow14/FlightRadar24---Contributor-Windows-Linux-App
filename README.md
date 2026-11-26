@@ -8,9 +8,9 @@ The application uses **native Qt Widgets**. It opens in its own program window, 
 
 ## Download for Windows
 
-### [Download FlightRadar24 0.6.4 — Windows x64 installer (.exe)](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.6.4/FlightRadar24-0.6.4-Windows-x64-Setup.exe)
+### [Download FlightRadar24 0.7.0 — Windows x64 installer (.exe)](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.7.0/FlightRadar24-0.7.0-Windows-x64-Setup.exe)
 
-[All release files and checksums](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.6.4) · [Installation guide](docs/RELEASE.md)
+[All release files and checksums](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.7.0) · [Installation guide](docs/RELEASE.md)
 
 Download the installer, run it, then open **FlightRadar24** from the Start menu. Python and a browser are not required. Setup includes the app and offline USB driver components. To share reception with Flightradar24, select **Install optional Flightradar24 sharing** during setup; that component downloads directly from its vendor and requires internet access. You can also add it by running setup again later.
 
@@ -25,8 +25,9 @@ Use a suitable **1090 MHz antenna**. A receiver listing alone does not prove tha
 | USB device / family | Support status | Driver notes |
 | --- | --- | --- |
 | **RTL-SDR Blog V4** | Live reception tested on Windows x64 | WinUSB on the SDR interface; the decoder includes Blog V4 support. |
+| **A12E RTL2832U ADS-B / Mode-S (`0BDA:2832`)** | Live reception tested on Windows x64 | Single-interface WinUSB setup is supported by the updated driver helper. Included in the 0.7.0 installer. |
 | **RTL2832U with R820T / R820T2** | Intended compatible family; each other model remains unverified on hardware | Includes common Blog V3-style and generic RTL-SDR dongles when their hardware/IDs are compatible. |
-| **USB IDs `0BDA:2832` and `0BDA:2838`** | Automatic driver setup allowlist, interface 0 only | Complete Windows setup checks these devices and preserves an existing working WinUSB binding. |
+| **USB IDs `0BDA:2832` and `0BDA:2838`** | Composite interface 0; also single-interface `0BDA:2832` | Complete Windows setup checks these devices and preserves an existing working WinUSB binding. Composite parents and other interfaces are excluded. |
 | Other receivers with **Beast, AVR or SBS** output | Use the supported network/serial input instead of direct USB | Decoded SBS is display/SBS-forwarding only; it cannot reconstruct raw frames or feed the vendor service. |
 
 Direct USB support is **not implemented** for Airspy, HackRF, SDRplay, 978 MHz UAT or Kinetic proprietary binary modes. The full Windows package uses an offline libwdi helper and Microsoft's inbox WinUSB driver; generated device-specific catalogues are locally signed, not WHQL certified. Portable/source builds do not install drivers themselves.
@@ -80,6 +81,14 @@ The practice workspace starts with fictional aircraft and prefilled receiver, fi
 `pythonw.exe` avoids a persistent console window. A packaged build uses the windowed `FlightRadar24.exe`. Choose a source under **Receiver & settings**, save, then **Start receiver**. Do not use the example antenna coordinates for a real receiver.
 
 Linux uses the equivalent virtual-environment commands with `python3` and `.venv/bin/python`. A graphical session and Qt system dependencies are required. Linux runtime/hardware tests remain outstanding.
+
+## Aircraft labels, hover and estimated conflicts
+
+Open **View → Map labels & conflict display** for individual map-label fields: callsign, ICAO, altitude, ground speed, track, vertical rate, squawk, antenna distance and last-seen age. Choose **Custom** and tick only the fields you want, then **Save display settings**. Presets and hidden labels remain available. Hover over a plane or its label for more received information; click to open its full details.
+
+Fresh airborne observations can produce **yellow or red estimated-conflict warnings on both aircraft**. The app checks projected horizontal and vertical proximity together, using TCAS II reference thresholds with a documented low-altitude fallback. Estimates include aircraft hidden by filters; stale, incomplete and ground observations are counted as unassessed. Emergency broadcasts keep red priority. Estimates and flashing each have their own on/off control.
+
+These ground-display estimates are not airborne TCAS, confirmed collision courses or manoeuvre guidance. Read the [thresholds, primary references and limitations](docs/CONFLICT-ALERTS.md). Missing reception can hide a conflict.
 
 ## What the receiver can tell you
 

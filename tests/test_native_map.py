@@ -9,8 +9,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path[:0] = [str(ROOT / 'src'), str(ROOT / 'work/desktoplibs')]
 os.environ.setdefault('QT_QPA_PLATFORM', os.environ.get('FRW_TEST_QT_PLATFORM', 'offscreen'))
 try:
-    from PySide6.QtCore import QBuffer, QByteArray, QIODevice, QPointF, Qt
-    from PySide6.QtGui import QColor, QPixmap
+    from PySide6.QtCore import QBuffer, QByteArray, QEvent, QIODevice, QPointF, Qt
+    from PySide6.QtGui import QColor, QHelpEvent, QPixmap
     from PySide6.QtNetwork import QNetworkReply
     from PySide6.QtTest import QTest
     from PySide6.QtWidgets import QApplication
@@ -82,6 +82,62 @@ class NativeMapTests(unittest.TestCase):
         east = _project(-17, 179.8)[0]
         west = _nearby(_project(-17, -179.8)[0], east)
         self.assertLess(abs(west - east), .002)
+
+    def test_conflict_flashing_steady_colour_and_emergency_priority(self):
+        canvas = self.map.canvas
+        row = dict(icao='A00001', latitude=0, longitude=.1, squawk='1200')
+        self.map.update_aircraft([row], {}, conflicts={'alerts': {'A00001': {'level': 'yellow'}}})
+        canvas._flash_on = False
+        self.assertEqual(canvas._warning_style(row), ('yellow', False))
+        canvas._tick_flash()
+        self.assertEqual(canvas._warning_style(row), ('yellow', True))
+        self.map.set_display({'conflict_flash': False})
+        canvas._flash_on = False
+        self.assertEqual(canvas._warning_style(row), ('yellow', True))
+        self.assertEqual(canvas._warning_style({**row, 'squawk': '7700'}), ('red', False))
+        self.map.set_display({'conflict_enabled': False})
+        self.assertEqual(canvas._warning_style(row)[0], '')
+
+    def test_custom_labels_respect_selection_and_hover_still_selects(self):
+        row = dict(icao='A00001', callsign='TEST101', latitude=0, longitude=.1,
+                   altitude=12000, groundspeed=210, track=90, squawk='1200')
+        self.map.update_aircraft([row], dict(latitude=0, longitude=0), 'A00001')
+        self.map.set_display({'map_labels': 'none'})
+        self.app.processEvents()
+        canvas = self.map.canvas
+        icao, point, box = canvas._markers[0]
+        self.assertEqual(icao, 'A00001')
+        self.assertTrue(box.isEmpty())  # Selection does not override hidden labels.
+        with patch('frw.native_map.QToolTip.showText') as show, patch('frw.native_map.QToolTip.hideText') as hide:
+            event = QHelpEvent(QEvent.Type.ToolTip, point.toPoint(), canvas.mapToGlobal(point.toPoint()))
+            self.app.sendEvent(canvas, event)
+            self.assertEqual(canvas._hover_icao, 'A00001')
+            self.assertIn('TEST101', show.call_args.args[1])
+            selected = []
+            self.map.aircraftSelected.connect(selected.append)
+            QTest.mouseClick(canvas, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, point.toPoint())
+            self.assertEqual(selected, ['A00001'])
+            self.assertEqual(canvas._hover_icao, '')
+            hide.assert_called()
+
+    def test_label_hit_test_hover_refresh_and_disable(self):
+        row = dict(icao='A00001', callsign='TEST101', latitude=0, longitude=.1, groundspeed=200)
+        self.map.set_display({'map_labels': 'custom', 'map_label_fields': ['icao', 'groundspeed']})
+        self.map.update_aircraft([row], dict(latitude=0, longitude=0))
+        self.app.processEvents()
+        canvas = self.map.canvas
+        point = canvas._markers[0][2].center()
+        self.assertEqual(canvas._hit_aircraft(point), 'A00001')
+        with patch('frw.native_map.QToolTip.showText') as show, patch('frw.native_map.QToolTip.hideText'):
+            canvas._hover_point = point
+            canvas._refresh_hover()
+            self.assertIn('200', show.call_args.args[1])
+            canvas.rows[0] = {**row, 'groundspeed': 220}
+            canvas._refresh_hover()
+            self.assertIn('220', show.call_args.args[1])
+            self.map.set_display({'aircraft_hover': False})
+            canvas._refresh_hover()
+            self.assertEqual(canvas._hover_icao, '')
 
     def test_worldwide_fit_can_zoom_out(self):
         self.map.canvas.setFixedSize(300, 260)

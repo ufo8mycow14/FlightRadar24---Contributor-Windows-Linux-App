@@ -1,5 +1,11 @@
 # Changes
 
+## 0.7.0
+
+- Both aircraft in an estimated close approach flash yellow, escalating to red for the shorter/tighter window. Uses fresh airborne pressure-altitude and motion data; separate enable/flashing switches, stale-data expiry and hidden-partner checks. Estimates are explicitly not TCAS or manoeuvre guidance.
+- Choose individual map-label fields and hover over aircraft for more received information. Existing presets, units, click-to-open details and compact map layout are retained.
+- The bundled WinUSB setup now supports the A12E RTL2832U single-interface 0BDA:2832 receiver while preserving healthy drivers and other interfaces.
+
 ## 0.6.4
 
 - Removed receiver starting/started/stopping/stopped and normal shutdown notices from over the map. Routine receiver status stays in the top bar; errors remain visible.

@@ -11,7 +11,7 @@ from unittest.mock import patch
 ROOT=Path(__file__).resolve().parents[1]
 sys.path[:0]=[str(ROOT/'src'),str(ROOT/'work/applibs'),str(ROOT/'work/desktoplibs')]
 os.environ.setdefault('QT_QPA_PLATFORM','offscreen')
-from PySide6.QtCore import QCoreApplication,QEvent,Qt
+from PySide6.QtCore import QCoreApplication,QEvent,Qt,QSettings
 from PySide6.QtWidgets import QApplication,QDialog
 from frw.activity import AlertEngine
 from frw.config import Settings
@@ -37,6 +37,8 @@ class NativeFeatureTests(unittest.TestCase):
         self.temp=tempfile.TemporaryDirectory(prefix='frw-native-features-')
         self.receiver=Receiver(Settings(Path(self.temp.name)),ROOT/'work/runtime')
         self.network=patch.object(_MapCanvas,'_pump_tiles');self.network.start()
+        self.ui_settings=patch('frw.desktop.QSettings',return_value=QSettings(str(Path(self.temp.name)/'ui.ini'),QSettings.Format.IniFormat))
+        self.ui_settings.start()
         self.window=FlightRadarWindow(self.receiver)
         self.window.setAttribute(Qt.WidgetAttribute.WA_DontShowOnScreen)
         self.window.show()
@@ -45,8 +47,11 @@ class NativeFeatureTests(unittest.TestCase):
 
     def tearDown(self):
         self.window.close();self.wait(lambda:self.window._can_close)
+        # Await background read workers before removing the temporary database.
+        self.window.dispatcher.pool.shutdown(wait=True)
+        self.window.dispatcher.mutations.shutdown(wait=True)
         self.window.deleteLater();self.app.processEvents();QCoreApplication.sendPostedEvents(None,QEvent.Type.DeferredDelete)
-        self.network.stop();self.temp.cleanup()
+        self.network.stop();self.ui_settings.stop();self.temp.cleanup()
 
     def test_filter_updates_all_airspace_views_and_persists_without_radio_mutation(self):
         self.window._set_list_detached(True)
@@ -128,5 +133,22 @@ class NativeFeatureTests(unittest.TestCase):
         self.assertGreater(prefs.verticalScrollBar().maximum(),0)
         for control in prefs.secrets.values():
             self.assertEqual(control.echoMode(),control.EchoMode.Password)
+
+    def test_display_controls_persist_independently(self):
+        prefs=self.window.feature_preferences
+        prefs.display_labels.setCurrentIndex(prefs.display_labels.findData('custom'))
+        for control in prefs.label_fields.values():control.setChecked(False)
+        prefs.label_fields['icao'].setChecked(True)
+        prefs.label_fields['track'].setChecked(True)
+        prefs.display_hover.setChecked(False)
+        prefs.display_conflict.setChecked(False)
+        before=copy.deepcopy(self.window.feature_model.value)
+        prefs.save_display()
+        self.wait(lambda:not self.window.feature_model.pending)
+        saved=self.window.feature_model.value['display']
+        self.assertEqual(saved['map_labels'],'custom')
+        self.assertEqual(saved['map_label_fields'],['icao','track'])
+        self.assertFalse(saved['aircraft_hover']);self.assertFalse(saved['conflict_enabled'])
+        self.assertEqual(self.window.feature_model.value['delivery'],before['delivery'])
 
 if __name__=='__main__':unittest.main()

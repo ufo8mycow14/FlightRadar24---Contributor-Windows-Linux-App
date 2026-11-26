@@ -15,6 +15,7 @@ from .control import Controller
 from .native_map import NativeMap, NativeAircraftDetails
 from .native_pages import NativePages
 from .features import FEATURE_DEFAULT, matches
+from .conflicts import evaluate_conflicts
 from .display import (DISPLAY_DEFAULT, bearing_suffix, display_bearing, distance_bearing, emergency_text, format_altitude,
     format_distance, format_seen, format_speed, format_track, format_vertical_rate,
     is_emergency, quick_match, sort_rows)
@@ -116,6 +117,7 @@ class FlightRadarWindow(QMainWindow):
         self.receiver, self.instance = receiver, instance
         self.config = receiver.settings.public()
         self.selected, self.rows, self.last_status = '', [], {}
+        self.conflicts = {'alerts': {}, 'assessed': 0, 'unassessed': 0, 'pairs': 0}
         self._poll_pending = self._detail_pending = self._action_pending = False
         self._details_width_set = False
         self._closing = self._can_close = False
@@ -328,6 +330,12 @@ class FlightRadarWindow(QMainWindow):
         self.details_panel._overlay_height = 540
         details_layout = QVBoxLayout(self.details_panel)
         details_layout.setContentsMargins(4, 4, 4, 4)
+        self.conflict_detail = QLabel()
+        self.conflict_detail.setTextFormat(Qt.TextFormat.PlainText)
+        self.conflict_detail.setWordWrap(True)
+        self.conflict_detail.setMaximumHeight(108)
+        self.conflict_detail.hide()
+        details_layout.addWidget(self.conflict_detail)
         details_layout.addWidget(self.details)
         self.map.add_overlay(self.details_panel, 'details-left')
         self.details_panel.hide()
@@ -341,6 +349,10 @@ class FlightRadarWindow(QMainWindow):
         for title, name in [('Receiver', 'receiver'), ('Data settings', 'settings'), ('Flightradar24 sharing', 'sharing')]:
             action = QAction(title, self)
             action.triggered.connect(lambda checked=False, page=name: self.show_page(page))
+            menu.addAction(action)
+        if self.feature_model:
+            action = QAction('Map labels & conflict display…', self)
+            action.triggered.connect(lambda: self.show_page('features'))
             menu.addAction(action)
         menu.addSeparator()
         self._table_action = QAction('Aircraft list', self, checkable=True, checked=True)
@@ -728,7 +740,12 @@ class FlightRadarWindow(QMainWindow):
         self.dispatcher.invoke('/api/' + name, {}, done)
 
     def poll(self):
-        if self._closing or self._poll_pending:
+        if self._closing:
+            return
+        if self._poll_pending:
+            # Expire warnings even while a status request is stalled.
+            self._update_positions()
+            self._update_table()
             return
         self._poll_pending = True
         def done(status, error=None):
@@ -739,6 +756,8 @@ class FlightRadarWindow(QMainWindow):
                 self._status_notice('Receiver status unavailable: ' + str(error))
                 self.health.setText('Receiver status unavailable')
                 self.details.set_error(str(error))
+                self._update_positions()
+                self._update_table()
                 return
             self._clear_status_notice()
             self.last_status = status
@@ -784,8 +803,16 @@ class FlightRadarWindow(QMainWindow):
         self.dispatcher.invoke('/api/status', None, done)
 
     def _update_positions(self):
+        self.conflicts = evaluate_conflicts(self.rows, enabled=self._display()['conflict_enabled'])
         rows=self.visible_rows()
-        self.map.update_aircraft(rows, self.config, self.selected)
+        self.map.update_aircraft(rows, self.config, self.selected, self.conflicts)
+        alert = self.conflicts['alerts'].get(self.selected)
+        if alert:
+            self.conflict_detail.setText(alert['summary'] + '\nEstimate only · not TCAS or navigation guidance')
+            self.conflict_detail.setToolTip(alert['summary'])
+            self.conflict_detail.setStyleSheet('QLabel { padding: 6px; border-radius: 4px; background: '
+                + ('#5a1620; color: #ffd7db' if alert['level'] == 'red' else '#514500; color: #fff2a0') + '; }')
+        self.conflict_detail.setVisible(bool(alert))
         if self._display()['follow_selected'] and self.selected:
             self.map.focus_aircraft(self.selected)
         if self.feature_model:
@@ -805,12 +832,15 @@ class FlightRadarWindow(QMainWindow):
         for index, row in enumerate(rows):
             result = distance_bearing(station, row)
             emergency = is_emergency(row)
+            conflict = self.conflicts['alerts'].get(row.get('icao'))
             if row.get('on_ground') is True:
                 position = 'On ground'
             elif row.get('latitude') is not None and row.get('longitude') is not None:
                 position = 'Recorded' if playback else 'Live'
             else:
                 position = 'Not received'
+            if conflict:
+                position = 'Estimated conflict · ' + conflict['level']
             values = [
                 str(row.get('callsign') or '').strip() or '—',
                 str(row.get('icao') or ''),
@@ -834,7 +864,12 @@ class FlightRadarWindow(QMainWindow):
                 if emergency:
                     item.setBackground(emergency_bg)
                     item.setForeground(emergency_fg)
-                    item.setToolTip(emergency_text(row) + '. Shown as broadcast; not independently verified.')
+                    item.setToolTip(emergency_text(row) + '. Shown as broadcast; not independently verified.'
+                                    + ('\n' + conflict['summary'] if conflict else ''))
+                elif conflict:
+                    item.setBackground(QBrush(QColor('#5a1620' if conflict['level'] == 'red' else '#514500')))
+                    item.setForeground(QBrush(QColor('#ffd7db' if conflict['level'] == 'red' else '#fff2a0')))
+                    item.setToolTip(conflict['summary'] + '\nEstimated from received data; not TCAS.')
                 else:
                     item.setBackground(QBrush())
                     item.setForeground(QBrush())

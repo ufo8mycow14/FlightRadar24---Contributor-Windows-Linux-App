@@ -2,6 +2,7 @@
 from __future__ import annotations
 import copy, os, sys, tempfile, time, unittest
 from pathlib import Path
+import html
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -13,7 +14,7 @@ from frw.config import ConfigError
 from frw.display import (bearing_deg, bearing_suffix, destination_point, display_bearing, distance_bearing, emergency_text,
     flight_level, format_altitude, format_distance, format_seen, format_speed,
     format_track, format_vertical_rate, is_emergency, quick_match, sort_rows,
-    trend_arrow, validate_display)
+    trend_arrow, validate_display, map_label_lines, aircraft_hover_html)
 from frw.features import validate_features
 
 try:
@@ -111,6 +112,31 @@ class DisplayFormattingTests(unittest.TestCase):
         migrated = validate_features({})
         self.assertFalse(migrated['display']['follow_selected'])
         self.assertTrue(migrated['display']['range_rings'])
+
+    def test_custom_labels_validate_order_switches_and_units(self):
+        cfg=validate_display({'map_labels':'custom','map_label_fields':['icao','altitude','icao','groundspeed','track','vertical_rate','distance','seen']})
+        self.assertEqual(cfg['map_label_fields'],['icao','altitude','groundspeed','track','vertical_rate','distance','seen'])
+        row={'icao':'ABC123','altitude':0,'groundspeed':0,'track':0,'vertical_rate':0,'latitude':0,'longitude':1,'seen':0}
+        lines=map_label_lines(row,cfg,(0,0))
+        self.assertEqual(lines,['ABC123','0 ft · 0 kt · Trk 000°T','→ +0 ft/min · Dist 60 NM · Seen 0 s'])
+        metric=map_label_lines(row,{**cfg,'units':'metric'},(0,0))
+        self.assertIn('0 m',metric[1]);self.assertIn('0 km/h',metric[1])
+        self.assertEqual(map_label_lines(row,{'map_labels':'callsign'}),['ABC123'])
+        self.assertEqual(map_label_lines({**row,'callsign':'ABC123'},{'map_labels':'detailed'}),['ABC123','0 ft · 0 kt'])
+        self.assertEqual(map_label_lines({'icao':'ABC123'},{'map_labels':'callsign'}),['ABC123'])
+        with self.assertRaises(ConfigError):validate_display({'map_label_fields':['bogus']})
+
+    def test_hover_escaping_missing_values_and_conflict_summary(self):
+        row={'icao':'ABC123','callsign':'<script>x</script>','altitude':0,'groundspeed':0,'track':0,'vertical_rate':0,'squawk':'7700','seen':7,'data_source':'ADS-B','latitude':-35.0,'longitude':138.0,'field_ages':{'latitude':20,'longitude':24},'altitude_source':'baro','vr_source':'GNSS','category':'A3','on_ground':False}
+        tip=aircraft_hover_html(row,{'units':'metric'},conflict={'summary':'Near <alert>','partners':[{'icao':'DEF456','callsign':'TST','level':'moderate','seconds':20,'horizontal_nm':1,'vertical_ft':500}]})
+        self.assertNotIn('<script>',tip);self.assertIn('&lt;script&gt;',tip)
+        self.assertIn('0 m',tip);self.assertIn('0 km/h',tip);self.assertIn('7700',tip);self.assertIn('ABC123',tip)
+        self.assertIn('Last message age',tip);self.assertIn('7 s',tip);self.assertIn('Position age',tip);self.assertIn('24 s',tip)
+        self.assertIn('Altitude source',tip);self.assertIn('baro',tip);self.assertIn('Vertical rate source',tip);self.assertIn('GNSS',tip)
+        self.assertIn('Position',tip);self.assertIn('Airborne',tip);self.assertIn('Category',tip)
+        self.assertIn('Near &lt;alert&gt;',tip);self.assertLessEqual(len(tip),1400)
+        self.assertEqual(aircraft_hover_html({}, {'aircraft_hover':False}), '')
+        self.assertEqual(aircraft_hover_html({}, {}),'')
 
 
 class _FakeReceiver:

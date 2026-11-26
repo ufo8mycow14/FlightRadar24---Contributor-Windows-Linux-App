@@ -144,6 +144,40 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.window.poll()
         self.wait_for(lambda: not self.window._poll_pending)
 
+    def test_conflicts_include_hidden_partners_and_expire_during_poll_failure(self):
+        now = time.time()
+        rows = []
+        for icao, callsign, longitude, track in [('A00001', 'FIRST', 0, 90), ('A00002', 'SECOND', .06, 270)]:
+            row = dict(icao=icao, callsign=callsign, latitude=0, longitude=longitude,
+                       altitude_baro=12000, altitude=12000, baro_vertical_rate=0,
+                       vertical_rate=0, groundspeed=360, track=track, on_ground=False,
+                       last_seen=now, seen=0)
+            row['field_times'] = {key: now for key in ('latitude', 'longitude', 'altitude_baro',
+                                  'baro_vertical_rate', 'groundspeed', 'track', 'on_ground')}
+            rows.append(row)
+        self.window.rows = rows
+        self.window._search_text = 'FIRST'
+        self.window._update_positions()
+        self.window._update_table()
+        self.assertEqual(set(self.window.conflicts['alerts']), {'A00001', 'A00002'})
+        self.assertEqual(len(self.window.map.canvas.rows), 1)
+        self.assertIn('red', self.window.table.item(0, 10).text())
+        self.window.selected = 'A00001'
+        self.window._update_positions()
+        self.assertFalse(self.window.conflict_detail.isHidden())
+        self.window.features['display'] = {'conflict_enabled': False}
+        self.window._update_positions()
+        self.assertFalse(self.window.conflicts['alerts'])
+        self.window.features['display'] = {'conflict_enabled': True}
+        self.window._poll_pending = True
+        with patch('frw.conflicts.time.time', return_value=now + 6):
+            self.window.poll()
+        self.assertFalse(self.window.conflicts['alerts'])
+        self.assertEqual(self.window.conflicts['unassessed'], 2)
+        self.assertTrue(self.window.conflict_detail.isHidden())
+        self.assertNotIn('conflict', self.window.table.item(0, 10).text())
+        self.window._poll_pending = False
+
     def test_slow_mutation_does_not_block_gui_or_status(self):
         self.receiver.start_release.clear()
         self.window.operation('start')

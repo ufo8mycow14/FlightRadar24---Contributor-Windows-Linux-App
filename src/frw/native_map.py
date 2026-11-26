@@ -5,13 +5,14 @@ from collections import OrderedDict
 import math
 import time
 
-from PySide6.QtCore import QPointF, QRectF, Qt, QUrl, Signal, QTimer
+from PySide6.QtCore import QEvent, QPointF, QRectF, Qt, QUrl, Signal, QTimer
 from PySide6.QtGui import QColor, QFont, QPainter, QPainterPath, QPen, QPolygonF
 from PySide6.QtNetwork import QNetworkAccessManager, QNetworkDiskCache, QNetworkReply, QNetworkRequest
-from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+from PySide6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPushButton, QToolTip, QVBoxLayout, QWidget
 
 from .native_details import NativeAircraftDetails
-from .display import DISPLAY_DEFAULT, destination_point, flight_level, is_emergency, north_offset_deg
+from .display import (DISPLAY_DEFAULT, aircraft_hover_html, destination_point, is_emergency,
+                      map_label_lines, north_offset_deg)
 
 TILE_SIZE = 256
 MAX_LATITUDE = 85.05112878
@@ -37,15 +38,18 @@ def _nearby(value, reference):
     return value + round(reference - value)
 
 
-def _plane(painter, point, heading, selected=False, emergency=False, flash_on=False):
+def _plane(painter, point, heading, selected=False, emergency=False, flash_on=False, conflict=''):
     painter.save()
     painter.translate(point)
     painter.rotate(float(heading) if _number(heading) else 0)
-    if emergency:
+    if emergency or conflict == 'red':
         # Emergency aircraft flash bright red / pale so they cannot be missed;
         # with flashing disabled flash_on stays true for a steady red marker.
         painter.setPen(QPen(QColor('#7a1220'), 1.4))
         painter.setBrush(QColor('#ff2d3f' if flash_on else '#fff0f1'))
+    elif conflict == 'yellow':
+        painter.setPen(QPen(QColor('#705400'), 1.4))
+        painter.setBrush(QColor('#ffdf00' if flash_on else '#fffde2'))
     else:
         painter.setPen(QPen(QColor('#694700' if selected else '#155b51'), 1.2))
         painter.setBrush(QColor('#ffbd45' if selected else '#38c8ad'))
@@ -79,6 +83,9 @@ class _MapCanvas(QWidget):
         self.zoom = 2
         self.center = QPointF(.5, .5)
         self.rows = []
+        self.conflicts = {}
+        self._hover_icao = ''
+        self._hover_point = None
         self.station = None
         self.selected = ''
         self.banner_left = 10
@@ -123,6 +130,7 @@ class _MapCanvas(QWidget):
         self.update()
 
     def zoom_at(self, delta, point=None):
+        self._hide_hover()
         zoom = max(0, min(18, self.zoom + delta))
         if zoom == self.zoom:
             return
@@ -176,7 +184,10 @@ class _MapCanvas(QWidget):
 
     def _tick_flash(self):
         flashing = self.display.get('emergency_flash', True)
-        active = flashing and any(is_emergency(row) for row in self.rows)
+        active = any((flashing and is_emergency(row)) or
+                     (self.display.get('conflict_flash', True) and
+                      self.display.get('conflict_enabled', True) and
+                      row.get('icao') in self.conflicts) for row in self.rows)
         if active:
             self._flash_on = not self._flash_on
             self.update()
@@ -187,6 +198,29 @@ class _MapCanvas(QWidget):
     def _emergency_flash_on(self):
         # Steady red when flashing is switched off in Display preferences.
         return self._flash_on if self.display.get('emergency_flash', True) else True
+
+    def _warning_style(self, row):
+        if is_emergency(row):
+            return 'red', self._emergency_flash_on()
+        alert = self.conflicts.get(row.get('icao'), {}) if self.display.get('conflict_enabled', True) else {}
+        level = alert.get('level', '')
+        return level, (self._flash_on if self.display.get('conflict_flash', True) else True)
+
+    def _label_box(self, point, width, height, occupied, marker_bounds):
+        """Prefer a nearby label position that leaves other planes and labels visible."""
+        candidates = []
+        for dx, dy in ((18, -10), (-width-18, -10), (18, -height-26),
+                       (-width-18, -height-26), (18, 26), (-width-18, 26)):
+            box = QRectF(point.x()+dx, point.y()+dy, width, height)
+            box.moveLeft(max(4, min(box.left(), self.width()-width-4)))
+            usable_bottom = max(height + 8, self.height() - self.bottom_reserved - 8)
+            box.moveTop(max(4, min(box.top(), usable_bottom-height)))
+            overlap = 0.0
+            for other in occupied + marker_bounds:
+                intersection = box.intersected(other)
+                overlap += intersection.width() * intersection.height()
+            candidates.append((overlap, box))
+        return min(candidates, key=lambda candidate: candidate[0])[1]
 
     def paintEvent(self, event):
         painter = QPainter(self)
@@ -237,6 +271,9 @@ class _MapCanvas(QWidget):
             painter.setBrush(QColor('#087768'))
             painter.drawEllipse(center, 6, 6)
         self._markers = []
+        occupied = []
+        marker_bounds = [QRectF(p.x()-22, p.y()-22, 44, 44)
+                         for p in (self._screen(r['latitude'], r['longitude']) for r in self.rows)]
         painter.setFont(QFont('Segoe UI', 9))
         for row in sorted(self.rows, key=lambda row: row.get('icao') == self.selected):
             point = self._screen(row['latitude'], row['longitude'])
@@ -244,31 +281,31 @@ class _MapCanvas(QWidget):
                 continue
             chosen = row.get('icao') == self.selected
             emergency = is_emergency(row)
-            flash_on = self._emergency_flash_on() if emergency else False
-            _plane(painter, point, row.get('track'), chosen, emergency, flash_on)
-            if emergency:
-                painter.setPen(QPen(QColor('#ff2d3f'), 3 if flash_on else 1.6))
+            level, flash_on = self._warning_style(row)
+            _plane(painter, point, row.get('track'), chosen, emergency, flash_on, level)
+            if level:
+                painter.setPen(QPen(QColor('#ff2d3f' if level == 'red' else '#d6ae00'), 3 if flash_on else 1.6))
                 painter.setBrush(Qt.BrushStyle.NoBrush)
                 radius = 25 if flash_on else 19
                 painter.drawEllipse(point, radius, radius)
-            mode = self.display.get('map_labels', 'callsign')
-            label = str(row.get('callsign') or row.get('icao') or '').strip()
-            detail = ''
-            if mode == 'detailed' or chosen:
-                level = flight_level(row.get('altitude'))
-                alt = f'FL{level}' if level is not None else (f"{row['altitude']:,.0f} ft" if _number(row.get('altitude')) else '')
-                spd = f"{row['groundspeed']:,.0f} kt" if _number(row.get('groundspeed')) else ''
-                detail = ' · '.join(part for part in (alt, spd) if part)
-            show_label = mode != 'none' or chosen or emergency
+            lines = map_label_lines(row, self.display, self.station)
+            # Warning identity remains visible even with ordinary labels hidden.
+            if level:
+                if not lines:
+                    lines = [str(row.get('callsign') or row.get('icao') or '')[:32]]
+                lines.append('EMERGENCY' if emergency else 'Estimated conflict · ' + level)
             box = QRectF(point.x() + 15, point.y() - 10, 0, 0)
-            if show_label and label:
-                lines = [label] + ([detail] if detail else [])
+            if lines:
                 width = max(painter.fontMetrics().horizontalAdvance(line) for line in lines) + 10
-                box = QRectF(point.x() + 15, point.y() - 10, width, 20 if len(lines) == 1 else 34)
-                painter.setPen(QPen(QColor('#c62f3b' if emergency else '#bd933e' if chosen else '#8bbcaf'), 1.5 if emergency else 1))
-                painter.setBrush(QColor('#c62f3b' if emergency and flash_on else '#ffe9ea' if emergency else '#fff1ce' if chosen else '#f2fffb'))
+                box = self._label_box(point, width, 6 + painter.fontMetrics().height() * len(lines),
+                                      occupied, marker_bounds)
+                occupied.append(box)
+                edge = '#c62f3b' if level == 'red' else '#a58300' if level == 'yellow' else '#bd933e' if chosen else '#8bbcaf'
+                background = ('#c62f3b' if flash_on else '#ffe9ea') if level == 'red' else ('#ffdf00' if flash_on else '#fffde2') if level == 'yellow' else '#fff1ce' if chosen else '#f2fffb'
+                painter.setPen(QPen(QColor(edge), 1.5 if level else 1))
+                painter.setBrush(QColor(background))
                 painter.drawRoundedRect(box, 3, 3)
-                painter.setPen(QColor('#ffffff' if emergency and flash_on else '#7a1220' if emergency else '#172e3d'))
+                painter.setPen(QColor('#ffffff' if level == 'red' and flash_on else '#172e3d'))
                 painter.drawText(box, Qt.AlignmentFlag.AlignCenter, '\n'.join(lines))
             self._markers.append((str(row.get('icao', '')), point, box))
         painter.setClipping(False)
@@ -280,6 +317,8 @@ class _MapCanvas(QWidget):
         self._draw_scale(painter)
         self._draw_compass(painter)
         painter.end()
+        if self._hover_icao:
+            self._refresh_hover()
         self._pump_tiles()
 
     def _draw_range_rings(self, painter):
@@ -392,6 +431,7 @@ class _MapCanvas(QWidget):
             parent._position_overlays()
 
     def mousePressEvent(self, event):
+        self._hide_hover()
         if event.button() == Qt.MouseButton.LeftButton:
             self.setFocus()
             self._press = event.position()
@@ -414,17 +454,58 @@ class _MapCanvas(QWidget):
             self._last_drag = event.position()
             event.accept()
         else:
-            self.setCursor(Qt.CursorShape.OpenHandCursor)
+            hit = self._hit_aircraft(event.position())
+            if self._hover_icao and hit != self._hover_icao:
+                self._hide_hover()
+            self._hover_point = event.position()
+            self.setCursor(Qt.CursorShape.PointingHandCursor if hit else Qt.CursorShape.OpenHandCursor)
             super().mouseMoveEvent(event)
+
+    def _hit_aircraft(self, position):
+        for icao, point, box in reversed(self._markers):
+            delta = position - point
+            if delta.x() ** 2 + delta.y() ** 2 <= 20 ** 2 or box.contains(position):
+                return icao
+        return ''
+
+    def _hide_hover(self):
+        if self._hover_icao:
+            QToolTip.hideText()
+        self._hover_icao = ''
+        self._hover_point = None
+
+    def _refresh_hover(self):
+        if self._press is not None or not self.display.get('aircraft_hover', True) or self._hover_point is None:
+            self._hide_hover()
+            return
+        icao = self._hit_aircraft(self._hover_point)
+        row = next((r for r in self.rows if r.get('icao') == icao), None)
+        if row is None or (self._hover_icao and self._hover_icao != icao):
+            self._hide_hover()
+            return
+        self._hover_icao = icao
+        alert = self.conflicts.get(icao) if self.display.get('conflict_enabled', True) else None
+        QToolTip.showText(self.mapToGlobal(self._hover_point.toPoint()),
+                         aircraft_hover_html(row, self.display, self.station, alert), self)
+
+    def event(self, event):
+        if event.type() == QEvent.Type.ToolTip:
+            self._hover_point = QPointF(event.pos())
+            self._refresh_hover()
+            event.accept()
+            return True
+        return super().event(event)
+
+    def leaveEvent(self, event):
+        self._hide_hover()
+        super().leaveEvent(event)
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.MouseButton.LeftButton and self._press is not None:
             if not self._dragged:
-                for icao, point, box in reversed(self._markers):
-                    delta = event.position() - point
-                    if delta.x() ** 2 + delta.y() ** 2 <= 20 ** 2 or box.contains(event.position()):
-                        self.aircraftSelected.emit(icao)
-                        break
+                icao = self._hit_aircraft(event.position())
+                if icao:
+                    self.aircraftSelected.emit(icao)
             self._press = self._last_drag = None
             self.setCursor(Qt.CursorShape.OpenHandCursor)
             event.accept()
@@ -603,10 +684,11 @@ class NativeMap(QWidget):
         super().resizeEvent(event)
         self._position_overlays()
 
-    def update_aircraft(self, rows, config, selected=''):
+    def update_aircraft(self, rows, config, selected='', conflicts=None):
         rows = list(rows or [])
         self.canvas.rows = [row for row in rows if _position(row.get('latitude'), row.get('longitude'))]
         self.canvas.selected = selected or ''
+        self.canvas.conflicts = (conflicts or {}).get('alerts', {})
         config = config or {}
         station = ((config['latitude'], config['longitude'])
                    if _position(config.get('latitude'), config.get('longitude')) else None)
@@ -622,8 +704,18 @@ class NativeMap(QWidget):
             self._centered = True
         count = len(self.canvas.rows)
         source = 'Recorded playback' if config.get('receiver') == 'iq-file' else 'Live positions'
-        self.summary.setText(f'Local airspace · {source} · {count} aircraft with a position'
-                             + (f' · {len(rows) - count} awaiting coordinates' if len(rows) != count else ''))
+        self.summary.setText(f'{source} · {count} positioned'
+                             + (f' · {len(rows) - count} without coordinates' if len(rows) != count else ''))
+        if conflicts is not None:
+            if not self.canvas.display.get('conflict_enabled', True):
+                self.summary.setText(self.summary.text() + ' · Conflict estimates off')
+            else:
+                pairs = conflicts.get('pairs', 0)
+                self.summary.setText(self.summary.text() + (f' · {pairs} estimated conflict pairs' if pairs else '')
+                                     + f" · {conflicts.get('unassessed', 0)} unassessed")
+        self.summary.setToolTip('Estimated conflicts compare all received aircraft, including traffic hidden by filters. '
+                               'Fresh position, pressure altitude, speed, track, vertical rate and airborne status are required. '
+                               'Unassessed includes ground, missing and stale data. This display is not TCAS or navigation guidance.')
         self.home_button.setEnabled(station is not None)
         self.fit_button.setEnabled(bool(count))
         self.canvas.update()

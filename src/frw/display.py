@@ -6,12 +6,18 @@ missing or non-finite values render as an explicit placeholder.
 """
 from __future__ import annotations
 import math
+import html
+import time
 from .aircraft import distance_nm
 from .config import ConfigError
 
 DISPLAY_DEFAULT = {
     'units': 'aviation',          # 'aviation' (ft / kt / NM) or 'metric' (m / km/h / km)
-    'map_labels': 'callsign',     # 'callsign', 'detailed' or 'none'
+    'map_labels': 'callsign',     # legacy presets or custom
+    'map_label_fields': ['callsign', 'altitude', 'groundspeed'],
+    'aircraft_hover': True,
+    'conflict_enabled': True,
+    'conflict_flash': True,
     'range_rings': True,          # station-centred range rings on the map
     'follow_selected': False,     # keep the selected aircraft centred on the map
     'cardinals': True,            # N/E/S/W compass and range-ring cardinal labels
@@ -21,7 +27,8 @@ DISPLAY_DEFAULT = {
 }
 NORTH_REFERENCES = ('true', 'magnetic')
 UNITS = ('aviation', 'metric')
-MAP_LABELS = ('callsign', 'detailed', 'none')
+MAP_LABELS = ('callsign', 'detailed', 'none', 'custom')
+MAP_LABEL_FIELDS = ('callsign', 'icao', 'altitude', 'groundspeed', 'track', 'vertical_rate', 'squawk', 'distance', 'seen')
 EMERGENCY_SQUAWKS = {
     '7500': 'Unlawful interference (squawk 7500)',
     '7600': 'Radio failure (squawk 7600)',
@@ -43,9 +50,13 @@ def validate_display(value):
         raise ConfigError('Choose aviation or metric display units.')
     if c['map_labels'] not in MAP_LABELS:
         raise ConfigError('Choose a map label style.')
-    for key in ('range_rings', 'follow_selected', 'cardinals', 'emergency_flash'):
+    for key in ('range_rings', 'follow_selected', 'cardinals', 'emergency_flash', 'aircraft_hover', 'conflict_enabled', 'conflict_flash'):
         if type(c[key]) is not bool:
             raise ConfigError(key + ' must be true or false.')
+    fields = c['map_label_fields']
+    if not isinstance(fields, (list, tuple)) or any(not isinstance(v, str) or v not in MAP_LABEL_FIELDS for v in fields):
+        raise ConfigError('Choose supported map label fields.')
+    c['map_label_fields'] = list(dict.fromkeys(fields))
     if c['north_reference'] not in NORTH_REFERENCES:
         raise ConfigError('Choose true or magnetic north for bearings and the compass.')
     variation = c['magnetic_variation']
@@ -224,3 +235,80 @@ def quick_match(row, query):
     if not q:
         return True
     return q in str(row.get('callsign') or '').upper() or q in str(row.get('icao') or '').upper()
+
+
+def map_label_lines(row, display, station=None):
+    """Return compact map-label text using only selected, received fields."""
+    display = {**DISPLAY_DEFAULT, **(display or {})}
+    mode = display.get('map_labels', 'callsign')
+    fields = list(display['map_label_fields']) if mode == 'custom' else (['callsign'] if mode == 'callsign' else ['callsign', 'altitude', 'groundspeed'] if mode == 'detailed' else [])
+    if mode in ('callsign', 'detailed') and not str(row.get('callsign') or '').strip():
+        fields[0] = 'icao'
+    identity = []
+    values = []
+    for field in fields:
+        value = ''
+        raw = row.get(field)
+        if field in ('callsign', 'icao', 'squawk'): value = str(raw or '').strip()[:32]
+        elif field == 'altitude': value = '' if raw is None else format_altitude(raw, display['units'])
+        elif field == 'groundspeed': value = '' if raw is None else format_speed(raw, display['units'])
+        elif field == 'track': value = '' if not _number(raw) else 'Trk ' + format_track(raw) + 'T'
+        elif field == 'vertical_rate': value = '' if raw is None else format_vertical_rate(raw, display['units'])
+        elif field == 'seen': value = '' if not _number(raw) or raw < 0 else 'Seen ' + format_seen(raw)
+        elif field == 'distance':
+            result = distance_bearing(station, row); value = 'Dist ' + format_distance(result[0], display['units']) if result else ''
+        if field == 'squawk' and value: value = 'Sq ' + value
+        if field in ('callsign','icao') and value: identity.append(value)
+        elif field != 'callsign':
+            if value and value != PLACEHOLDER: values.append(value[:48])
+    lines = [' · '.join(identity[:2])] if identity else []
+    lines.extend(' · '.join(values[i:i+3]) for i in range(0, len(values), 3))
+    return lines
+
+
+def aircraft_hover_html(row, display, station=None, conflict=None):
+    """Escaped bounded HTML tooltip for received aircraft and estimate context."""
+    if not (display or {}).get('aircraft_hover', True): return ''
+    display = {**DISPLAY_DEFAULT, **(display or {})}
+    labels = [('Callsign', str(row.get('callsign') or '').strip()[:32]), ('ICAO', str(row.get('icao') or '').strip()[:16]),
+              ('Altitude', format_altitude(row.get('altitude'), display['units']) if row.get('altitude') is not None else ''),
+              ('Ground speed', format_speed(row.get('groundspeed'), display['units']) if row.get('groundspeed') is not None else ''),
+              ('Track', format_track(row.get('track')) if row.get('track') is not None else ''),
+              ('Vertical rate', format_vertical_rate(row.get('vertical_rate'), display['units']) if row.get('vertical_rate') is not None else ''),
+              ('Squawk', str(row.get('squawk') or '').strip()[:8]), ('Received via', str(row.get('data_source') or '').strip()[:40]),
+              ('Last message age', format_seen(row.get('seen')) if row.get('seen') is not None else '')]
+    ages=row.get('field_ages') if isinstance(row.get('field_ages'),dict) else {}
+    times=row.get('field_times') if isinstance(row.get('field_times'),dict) else {}
+    pos_ages=[ages[k] for k in ('latitude','longitude') if _number(ages.get(k))]
+    if len(pos_ages)==2: labels.append(('Position age',format_seen(max(pos_ages))))
+    elif all(_number(times.get(k)) for k in ('latitude','longitude')):
+        labels.append(('Position age',format_seen(max(0,time.time()-min(times['latitude'],times['longitude'])))))
+    lat,lon=row.get('latitude'),row.get('longitude')
+    if _number(lat) and _number(lon):labels.append(('Position',f'{lat:.5f}, {lon:.5f}'))
+    if isinstance(row.get('on_ground'),bool):labels.append(('Flight state','On ground' if row['on_ground'] else 'Airborne'))
+    for key,title in (('category','Category'),('wake_vortex','Emitter category')):
+        if row.get(key) is not None:labels.append((title,str(row[key])[:48]))
+    if row.get('altitude_source'):labels.append(('Altitude source',str(row['altitude_source'])[:32]))
+    elif row.get('altitude_baro') is not None:labels.append(('Altitude source','Barometric'))
+    elif row.get('altitude_gnss') is not None:labels.append(('Altitude source','GNSS'))
+    if row.get('vr_source'):labels.append(('Vertical rate source',str(row['vr_source'])[:32]))
+    result = distance_bearing(station, row)
+    if result: labels.append(('Distance', format_distance(result[0], display['units'])))
+    items = [f'<b>{html.escape(k)}</b>: {html.escape(v[:100])}' for k,v in labels if v][:24]
+    emergency = emergency_text(row)
+    if emergency: items.append(f'<b>Emergency</b>: {html.escape(emergency)}')
+    if isinstance(conflict, dict) and conflict.get('summary'):
+        items.append(f'<b>Conflict estimate</b>: {html.escape(str(conflict["summary"])[:160])}')
+        for p in conflict.get('partners', [])[:3]:
+            desc = ' '.join(str(p.get(k) or '')[:24] for k in ('icao','callsign','level') if p.get(k))
+            metrics=[]
+            for key,label,unit in (('seconds','in','s'),('horizontal_nm','horizontal','NM'),('vertical_ft','vertical','ft')):
+                value=p.get(key)
+                if _number(value):metrics.append(f'{label} {value:g} {unit}')
+            if desc: items.append(html.escape((desc+' · '+' · '.join(metrics))[:150]))
+    bounded=[];size=0
+    for item in items:
+        cost=len(item)+(4 if bounded else 0)
+        if size+cost>1400:break
+        bounded.append(item);size+=cost
+    return '<br>'.join(bounded)
