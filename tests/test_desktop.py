@@ -201,6 +201,58 @@ class DesktopIntegrationTests(unittest.TestCase):
         self.assertTrue(self.window.message.isHidden())
         self.assertIn('stopped', self.window.health.text())
 
+    def test_mixed_api_airspace_keeps_local_stats_details_and_export_separate(self):
+        self.receiver.status['aircraft'] = [{'icao': 'A00001', 'callsign': 'LOCAL', 'latitude': 1, 'longitude': 2}]
+        api = {'records': [{'hex': 'a00001', 'callsign': 'API-DUP', 'lat': 3, 'lon': 4, 'reg': 'REG-ONE'},
+                           {'hex': 'B00001', 'callsign': 'API-ONLY', 'lat': 5, 'lon': 6, 'alt': 14000}],
+               'received_at': time.time(), 'enabled': True, 'status': 'API updated'}
+        with patch.object(self.window.fr24_overlay, 'snapshot', return_value=api):
+            self.refresh()
+            self.assertEqual(len(self.window.map.canvas.rows), 2)
+            self.assertEqual(self.window.table.rowCount(), 2)
+            self.assertIn('1 aircraft', self.window.metrics.text())
+            local, remote = self.window.visible_rows()
+            self.assertEqual((local['callsign'], local['latitude'], local['fr24_data']['reg']), ('LOCAL', 1, 'REG-ONE'))
+            self.assertEqual(remote['source'], 'fr24-api')
+            self.assertNotIn('fr24_data', self.window.last_status['aircraft'][0])
+            self.window.select_aircraft(local['icao'])
+            self.wait_for(lambda: not self.window._detail_pending)
+            self.assertEqual(self.window.details.snapshot['fr24_data']['reg'], 'REG-ONE')
+            self.assertIn('altitude_baro', self.window.details.snapshot)
+            with patch.object(self.receiver.aircraft, 'detail', side_effect=AssertionError('API selection reached receiver')):
+                self.window.select_aircraft(remote['icao'])
+                self.assertEqual(self.window.details.snapshot['fr24_data']['alt'], 14000)
+            path = Path(self.directory.name) / 'aircraft.csv'
+            with patch('frw.desktop.QFileDialog.getSaveFileName', return_value=(str(path), 'CSV')):
+                self.window.export_aircraft()
+            exported = path.read_text(encoding='utf-8-sig')
+            self.assertIn('LOCAL', exported)
+            self.assertNotIn('API-', exported)
+            self.assertNotIn('REG-ONE', exported)
+            api.update(records=[], enabled=False, received_at=None)
+            self.refresh()
+            self.assertEqual(self.window.table.rowCount(), 1)
+            self.assertFalse(self.window.selected)
+            self.assertFalse(self.window.details.snapshot)
+
+    def test_api_only_map_without_receiver_and_playback_isolation(self):
+        api = {'records': [{'fr24_id': '30000001', 'callsign': 'API-ONLY', 'lat': 0, 'lon': 0}],
+               'received_at': time.time(), 'enabled': True, 'status': 'API updated'}
+        with patch.object(self.window.fr24_overlay, 'snapshot', return_value=api), patch.object(self.window.fr24_overlay, 'tick') as tick:
+            self.refresh()
+            self.assertEqual(self.window.table.rowCount(), 1)
+            self.assertEqual(len(self.window.map.canvas.rows), 1)
+            self.assertIn('stopped', self.window.health.text())
+            self.assertIn('0 aircraft', self.window.metrics.text())
+            self.assertFalse(self.window.api_badge.isHidden())
+            self.assertTrue(tick.called)
+            tick.reset_mock()
+            self.window.config['receiver'] = 'iq-file'
+            self.refresh()
+            self.assertEqual(self.window.table.rowCount(), 0)
+            self.assertIn('paused', self.window.api_badge.text())
+            tick.assert_not_called()
+
     def test_async_shutdown_finishes_cleanup_before_close(self):
         self.window._set_list_detached(True)
         aircraft_window = self.window.aircraft_window

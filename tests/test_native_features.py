@@ -187,6 +187,57 @@ class NativeFeatureTests(unittest.TestCase):
         self.wait(lambda:not window.feature_model.pending)
         self.assertFalse(window.map.waypoint_button.isChecked())
 
+    def test_external_feature_updates_sync_clean_preferences_without_blocking_updates(self):
+        window=self.window
+        prefs=window.feature_preferences
+        self.assertFalse(prefs.has_unsaved_changes())
+        window.feature_model.save({'retention_days':120,'display':{**window._display(),'units':'metric'}})
+        self.wait(lambda:not window.feature_model.pending and window._display()['units']=='metric')
+        self.assertEqual(prefs.fields['retention_days'].value(),120)
+        self.assertEqual(prefs.display_units.currentData(),'metric')
+        self.assertFalse(prefs.has_unsaved_changes())
+        self.assertTrue(window._update_safe())
+        # In-progress user edits in FeaturePreferences must still be preserved across background refreshes
+        prefs.fields['retention_days'].setValue(45)
+        self.assertTrue(prefs.has_unsaved_changes())
+        window.feature_model.load()
+        self.wait(lambda:not window.feature_model.pending)
+        self.assertEqual(prefs.fields['retention_days'].value(),45)
+        self.assertTrue(prefs.has_unsaved_changes())
+        prefs.fields['retention_days'].setValue(120)
+        self.assertFalse(prefs.has_unsaved_changes())
+
+    def test_follow_selected_menu_toggle_centers_map_and_syncs_preferences(self):
+        window=self.window
+        window.rows=[{'icao':'7C0101','callsign':'QFA101','latitude':-33.86,'longitude':151.21,
+                      'altitude':15000,'groundspeed':360,'track':45,'vertical_rate':0,'seen':1.0,'last_seen':1.0}]
+        window._update_positions()
+        window.select_aircraft('7C0101')
+        window.map.canvas.set_center(0.0,0.0,zoom=6)
+        center_before=(window.map.canvas.center.x(),window.map.canvas.center.y())
+        self.assertFalse(window._follow_action.isChecked())
+        window._follow_action.trigger()
+        self.wait(lambda:not window.feature_model.pending and window._display()['follow_selected'])
+        self.assertTrue(window._follow_action.isChecked())
+        self.assertTrue(window.feature_preferences.display_follow.isChecked())
+        self.assertFalse(window.feature_preferences.has_unsaved_changes())
+        center_after=(window.map.canvas.center.x(),window.map.canvas.center.y())
+        self.assertNotEqual(center_before,center_after)
+
+    def test_airport_dialog_double_click_populates_and_accepts(self):
+        from PySide6.QtWidgets import QDialog
+        from frw.native_features import AirportDialog
+        dialog=AirportDialog(parent=self.window)
+        try:
+            dialog.search.setText('YPAD')
+            self.app.processEvents()
+            self.assertGreaterEqual(dialog.results.count(),1)
+            dialog.results.itemDoubleClicked.emit(dialog.results.item(0))
+            self.assertEqual(dialog.result(),QDialog.DialogCode.Accepted)
+            self.assertEqual(dialog.airport['code'],'YPAD')
+        finally:
+            dialog.close()
+
     def test_statistics_refresh_measures_columns_once_and_preserves_cells(self):
         class CountingDelegate(QStyledItemDelegate):
             calls = 0

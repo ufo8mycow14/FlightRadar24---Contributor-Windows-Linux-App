@@ -103,3 +103,27 @@ class WaypointTests(unittest.TestCase):
             store=WaypointStore(temporary)
             self.assertIn('could not be read',store.error)
             self.assertTrue(store.catalog().historical)
+
+    def test_waypoint_dialog_and_help_state_current_record_limit(self):
+        import os
+        from frw.waypoints import MAX_POINTS
+        repo_root = Path(__file__).resolve().parents[1]
+        help_text = (repo_root/'src/frw/data/help.json').read_text(encoding='utf-8')
+        self.assertIn(f'{MAX_POINTS:,} records', help_text)
+        self.assertNotIn('100,000 records', help_text)
+        try:
+            from PySide6.QtWidgets import QApplication, QLabel
+            from frw.native_waypoints import WaypointDialog
+        except ImportError:
+            return
+        os.environ.setdefault('QT_QPA_PLATFORM', 'offscreen')
+        app = QApplication.instance() or QApplication([])
+        with tempfile.TemporaryDirectory() as temporary:
+            dialog = WaypointDialog(WaypointStore(temporary))
+            try:
+                rendered = '\n'.join(lbl.text() for lbl in dialog.findChildren(QLabel))
+                self.assertIn(f'{MAX_POINTS:,} records', rendered)
+                self.assertNotIn('100,000 records', rendered)
+            finally:
+                dialog.close()
+                app.processEvents()

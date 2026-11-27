@@ -263,6 +263,28 @@ class WorkspaceTests(unittest.TestCase):
         self.assertIn('km/h', headers[3])
         self.assertEqual(self.window.table.item(0, 2).text(), '10,668 m')
 
+    def test_profile_local_ui_settings_and_escape_ctrl_e_shortcuts(self):
+        from PySide6.QtTest import QTest
+        ui_file = Path(self.window._ui_settings.fileName()).resolve()
+        self.assertEqual(ui_file.parent, Path(self.directory.name).resolve())
+        self.assertEqual(ui_file.name, 'ui-state.ini')
+        self.assertEqual(self.window._export_action.shortcut().toString(), 'Ctrl+E')
+        self.window.show()
+        self.window.select_aircraft('7C0001')
+        self.window._set_fullscreen(True)
+        self.app.processEvents()
+        self.assertTrue(self.window.isFullScreen())
+        self.assertEqual(self.window.selected, '7C0001')
+        self.window._handle_escape()
+        self.app.processEvents()
+        self.assertFalse(self.window.isFullScreen())
+        self.assertEqual(self.window.selected, '7C0001')
+        self.assertFalse(self.window.details_panel.isHidden())
+        QTest.keyClick(self.window, Qt.Key.Key_Escape)
+        self.app.processEvents()
+        self.assertEqual(self.window.selected, '')
+        self.assertTrue(self.window.details_panel.isHidden())
+
 
 if __name__ == '__main__':
     unittest.main()

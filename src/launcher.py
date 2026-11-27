@@ -46,6 +46,8 @@ def main(argv=None):
                         help='Open isolated dummy-data practice without a receiver or profile')
     parser.add_argument('--session-file', type=Path, help=argparse.SUPPRESS)
     args = parser.parse_args(argv)
+    if os.name == 'nt':
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID('FlightRadar24')
     source = Path(__file__).resolve().parent
     if not getattr(sys, 'frozen', False):
         sys.path[:0] = [str(source.parent / 'work/desktoplibs'), str(source.parent / 'work/applibs')]

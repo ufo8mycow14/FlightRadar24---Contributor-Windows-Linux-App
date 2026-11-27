@@ -201,5 +201,28 @@ class ApplicationTests(unittest.TestCase):
             self.assertFalse(f.signup_snapshot()['running'])
         finally:
             if child.poll() is None: child.terminate();child.wait(3)
+    def test_headless_web_ui_metadata_and_settings_save_contract(self):
+        from frw import __version__
+        web_root = ROOT/'src/frw/web'
+        index_html = (web_root/'index.html').read_text(encoding='utf-8')
+        app_js = (web_root/'app.js').read_text(encoding='utf-8')
+        self.assertIn(f'v{__version__}', index_html)
+        self.assertIn('delete next.key_storage', app_js)
+        for field in ('bandwidth_khz', 'mode_ac', 'meteo', 'capture_mb'):
+            self.assertIn(f"'{field}'", app_js)
+        with self.request('api/settings') as resp:
+            public_payload = json.load(resp)
+        self.assertIn('has_key', public_payload)
+        self.assertIn('key_storage', public_payload)
+        next_payload = dict(public_payload)
+        next_payload.pop('has_key', None)
+        next_payload.pop('key_storage', None)
+        next_payload['ppm'] = 7
+        next_payload['meteo'] = True
+        with self.request('api/settings', {'settings': next_payload}) as resp:
+            saved = json.load(resp)
+        self.assertTrue(saved['ok'])
+        self.assertEqual(self.settings.value['ppm'], 7)
+        self.assertTrue(self.settings.value['meteo'])
 
 if __name__=='__main__':unittest.main(verbosity=2)

@@ -1,6 +1,6 @@
 # FlightRadar24 user guide
 
-Version 0.9.0 · Kieran O'Rourke
+Version 0.10.1 · Kieran O'Rourke
 
 All example aircraft, coordinates and delivery addresses are dummy data. Practice never changes your live profile.
 
@@ -36,6 +36,7 @@ All example aircraft, coordinates and delivery addresses are dummy data. Practic
 - [Glossary and units](#glossary)
 - [About, licence and project](#about)
 - [Software updates from GitHub](#updates)
+- [Flightradar24 API data](#fr24-api)
 - [Aviation waypoints on the map](#waypoints)
 
 <a id="start"></a>
@@ -54,7 +55,7 @@ FlightRadar24 is an independent native desktop app for receiving nearby 1090 MHz
 
 ### What to expect
 
-Radio range depends on antenna, placement, local terrain, aircraft and interference. A connected device with no messages does not establish a software failure. The program cannot supply worldwide aircraft from the internet; its map works worldwide and shows traffic from your selected source.
+Radio range depends on antenna, placement, local terrain, aircraft and interference. A connected device with no messages does not establish a software failure. The local receiver shows traffic from your antenna or stream; the optional Flightradar24 API overlay can add provider-supplied live data for its configured geographic area, limit and account subscription.
 
 Uploading is optional. Your sharing key is unrelated to an API subscription. No route, registration or aircraft-photo service is required.
 
@@ -210,7 +211,7 @@ TCAS II reference thresholds vary with altitude: caution timing is 20–48 secon
 
 ### Display units, labels, rings and north reference
 
-Receiver & settings → Storage & alerts → Display & units chooses aviation units (feet, knots, nautical miles) or metric conversions (metres, km/h, kilometres), map label detail, station range rings and keeping the selected aircraft centred. These choices affect presentation only; reception, uploading, alerts and history keep broadcast values.
+Receiver & settings → Storage & alerts → Display & units chooses aviation units (feet, knots, nautical miles) or metric conversions (metres, km/h, kilometres), map label detail, station range rings and keeping the selected aircraft centred (also available directly via View → Follow selected aircraft on map). Press Esc on the map to exit full screen or close the selected aircraft details panel, and Ctrl+E to export the visible aircraft table to CSV. These choices affect presentation only; reception, uploading, alerts and history keep broadcast values.
 
 Altitude at or above 10,000 ft is also shown as an approximate flight level, for example 35,000 ft · FL350. The receiver cannot confirm the pressure setting, so treat FL as shorthand. Metric values are converted from the broadcast feet and knots, not re-measured. Up/down arrows summarise the broadcast vertical rate; a level arrow covers rates within ±100 ft/min.
 
@@ -485,6 +486,16 @@ Optional sharing uses the unchanged official feeder. Local reception works witho
 4. Enable Upload live reception to Flightradar24, save and start receiver.
 5. Inspect vendor connection status and aircraft-sent reports. Check your Flightradar24 data-sharing account for online/recent data to corroborate acceptance.
 
+### Pi24 settings on Windows
+
+Receiver & settings → Flightradar24 lets you edit the Pi24 configuration, including decoder path and arguments, RAW, BaseStation, MPX, logging and window mode. Export saved Pi24 profile writes a separate INI without reading or exporting your sharing key. Do not overwrite the active feeder configuration.
+
+The [FR24 Pi24 example](https://support.fr24.com/support/solutions/articles/3000115469-how-should-my-configuration-file-look-like-when-using-pi24-image-) is for a receiver sharing only with FR24. FR24 says to set both MLAT options to **no** if you also share with other sites. The template does not export antenna coordinates; verify those on the target station during registration. Port 30003 is an optional BaseStation output, not an MLAT switch.
+
+To reuse profile values with a Windows USB receiver, choose Apply supported Pi24 settings to Windows receiver. Review and save the gain on Receiver, and the RAW/SBS output switches and diagnostic logging on Data & settings. This does not change the device, enable LAN access or restart reception. Windows logging uses the app's storage limits rather than Pi24's retention periods.
+
+The Windows receiver opens the selected physical RTL-SDR. Its uploader receives a local Beast or AVR stream; it cannot open the USB stick itself in this build. Editing a Pi24 profile does not change that connection. Use the Windows receiver controls for its own gain, outputs and diagnostic logging. The sharing controls request MLAT, but the vendor monitor indicates whether the service permits it.
+
 ### Understand the boundary
 
 A running process or connected status alone is not proof of accepted aircraft uploads. Use a sharing key on only one receiver at a time. Recorded playback cannot upload, and decoded SBS input cannot recreate the raw data needed for sharing.
@@ -736,6 +747,40 @@ If download or preparation fails, the current app keeps running. If installation
 
 Checks and downloads contact GitHub, which sees your connection IP address. The app sends no receiver settings, sharing keys, aircraft data or history. Source and Linux builds do not automatically check or run a Windows installer.
 
+<a id="fr24-api"></a>
+## Flightradar24 API data
+
+Connect an API subscription to the live map, or run bounded lookups against documented API endpoints.
+
+### Set up the live aircraft overlay
+
+1. Open View → Flightradar24 API settings or Receiver & settings → Flightradar24. Enter the API token from your separate Flightradar24 API subscription, choose light or full positions, set a geographic area, a maximum result count and a refresh interval, then save. The receiver sharing key is a different credential and does not unlock API access.
+2. The overlay starts off. Live requests run only while enabled and the program is open, and pause during recorded I/Q playback or while the on-demand browser is open. The minimum refresh interval is 15 seconds; manual lookups share this interval, and provider cooldowns can require a longer wait. Choose an area, result cap and interval that fit the account. Smaller result sets and less frequent requests generally use fewer credits. Settings show refresh frequency and an indicative upper-bound credit estimate; the on-demand browser shows endpoint credit costs. Actual credit use depends on the data returned and your Flightradar24 plan and current pricing.
+3. Windows protects the API token with DPAPI for the signed-in user. Linux stores it in a file restricted to the profile owner. The field stays blank for an existing saved token; replace or remove it using the API settings.
+4. Data provided by Flightradar24. Access is subject to your subscription and Flightradar24 API terms. The API may reject requests when a subscription does not include that endpoint or the account has insufficient credits.
+
+### Read the combined map
+
+API aircraft are shown alongside aircraft from your selected local receiver or stream. When ICAO24 matches, there is one row. Existing local receiver positions stay on the map; when the local row has no position, its display may use an API position labelled Receiver · FR24 position, with the map marker labelled FR24. This display fallback does not change local receiver data. API fields remain available in aircraft details. Other returned aircraft appear as API-only entries with Flightradar24 attribution. Callsigns alone do not join records. The settings include an aircraft result cap and geographic bounds; they control live API requests.
+
+API positions and additional fields describe the data returned by the selected endpoint and can have a different update time from local reception. The details panel shows their provider attribution. An API request error or expired response is reported in the API status; local receiver activity continues independently.
+
+### Browse the documented API
+
+1. Open View → Browse Flightradar24 API data. Choose a documented live or historic position, count, event, summary, track, airport, airline or usage endpoint, enter its supported query fields and review the displayed credit estimate before selecting Run query. Queries are on demand; browsing does not run a background refresh. A manual query shares the configured minimum request interval, and provider cooldowns may require a longer wait. Automatic map polling pauses while this browser is open and resumes after it closes.
+2. A permission or account-credit error applies to that API endpoint or account. Follow the Flightradar24 API documentation and subscription information for endpoint access, prices, credit use and terms.
+3. Data provided by Flightradar24. Responses are displayed in the open browser window and cleared when it closes. Live map API positions remain in memory and are cleared when the program closes.
+
+### What the API does not change
+
+API data is used only by the live display. It is not provided to USB or network receiver inputs, the official sharing feeder, receiver history or statistics, alert evaluation, CSV exports or RAW/SBS/Beast outputs. Local receiver aircraft alone contribute to the receiver metrics. The normal headless loopback control interface does not expose the API results.
+
+The API token is stored separately from the Flightradar24 sharing key. Starting or enabling the API overlay does not start the sharing feeder or submit API records. Closing the app ends automatic API requests.
+
+### Provider documentation
+
+See the Flightradar24 OpenAPI specification at https://fr24api.flightradar24.com/documentation/Flightradar24-API.yaml, the credit overview at https://fr24api.flightradar24.com/docs/credit-overview, the endpoint overview at https://fr24api.flightradar24.com/docs/endpoints/overview, the storage rules at https://fr24api.flightradar24.com/docs/storage-rules/ and subscription information at https://fr24api.flightradar24.com/subscriptions-and-credits/. Endpoint availability, retention rules and credit costs can change.
+
 <a id="waypoints"></a>
 ## Aviation waypoints on the map
 
@@ -755,5 +800,5 @@ The source is Robin A. Peel / FlightGear, GPL version 2 or later. Original notic
 ### Import a newer file
 
 1. Open View → Aviation waypoint data. Enter the source cycle/date if known and choose Import waypoint file. Import only data you are entitled to use. The date is user supplied, not verified.
-2. Use UTF-8 CSV with ident,latitude,longitude columns and decimal degrees, or X-Plane/FlightGear fix.dat/.dat.gz (600/1100/1101/1200 formats). Files are limited to 12 MB after decompression and 100,000 records. Invalid coordinates/files leave the previous data intact.
+2. Use UTF-8 CSV with ident,latitude,longitude columns and decimal degrees, or X-Plane/FlightGear fix.dat/.dat.gz (600/1100/1101/1200 formats). Files are limited to 12 MB after decompression and 150,000 records. Invalid coordinates/files leave the previous data intact.
 3. The imported layer replaces the selected reference. Use historical reference and Use last import switch between them. Imported data stays in the local profile and is never uploaded; program updates retain it.

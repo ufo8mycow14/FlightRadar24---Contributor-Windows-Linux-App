@@ -12,6 +12,8 @@ The application uses **native Qt Widgets**. It opens in its own program window, 
 
 [All release files and checksums](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/tag/v0.9.0) · [Installation guide](docs/RELEASE.md)
 
+This is the latest verified public Windows installer. The current 0.10.1 source includes an optional Flightradar24 API display and browser, plus native Pi24 settings support; these additions are source-only and are not in the 0.9.0 installer. A matching newer Windows installer has not been published.
+
 Download the installer, run it, then open **FlightRadar24** from the Start menu. Python and a browser are not required. Setup includes the app and offline USB driver components. To share reception with Flightradar24, select **Install optional Flightradar24 sharing** during setup; that component downloads directly from its vendor and requires internet access. You can also add it by running setup again later.
 
 This release is for **64-bit Windows**. It is unsigned; no verified-publisher certificate is claimed. Linux binaries and a macOS installer are not available yet.
@@ -38,6 +40,8 @@ Direct USB support is **not implemented** for Airspy, HackRF, SDRplay, 978 MHz U
 - **Map-first airspace view.** The worldwide map fills the home screen; reception and sharing status run across the very top bar, the aircraft list with Find and filters floats in a box along the bottom spanning the map, clicking a plane pops its live details up in a compact floating box at the left, and zoom, antenna and fit controls sit on the map itself. Dotted 50 NM range rings, N/E/S/W cardinals and a compass (true or magnetic north, using your entered variation) replace the old separate radar box, and work without map tiles. Map tiles use OpenStreetMap with visible attribution.
 - **Airspace workspace.** Aviation or metric units with flight levels, distance/bearing from your antenna, climb/descent trend arrows, flashing-red emergency aircraft, Find (Ctrl+F), a sortable aircraft table, follow-selected map centring and a remembered window layout. Display choices never change reception, uploading or recorded history.
 - **Live aircraft details.** Callsign, ICAO24 address, squawk, position, altitude, ground speed, track, vertical rate, source and measurement ages. Expanded groups show additional broadcast fields when available.
+- **Optional Flightradar24 API display.** Connect an API token, choose light or full live positions, a bounded map area, refresh interval and result cap. ICAO24 matches use the local receiver position when present; an API position fills in only when that local row has no position and is labelled “Receiver · FR24 position”. API-only aircraft are attributed to Flightradar24.
+- **On-demand API data browser.** View → Browse Flightradar24 API data provides documented live and historic positions, flight summaries, events, tracks, airport and airline details, counts and usage where the subscription allows them. Queries are manual and show their estimated credit cost before sending.
 - **Flexible display filters.** Callsigns/prefixes, exact ICAO24 addresses, squawks, altitude, speed, distance, emitter category, source, ground/airborne state, position and emergencies. Save named presets.
 - **Aircraft watches and alerts.** In-app history, system sound, native desktop notification requests and optional TLS email or HTTPS ntfy/Discord/generic webhook delivery. Cooldowns, quiet hours and rate limits control noise.
 - **Reception statistics.** Aircraft encounters show when each callsign was last received, days ago and the number of separate encounters for that ICAO24 across retained history. Older approximate callsign dates are marked ≈. Live reception and recorded playback stay separate.
@@ -47,10 +51,11 @@ Direct USB support is **not implemented** for Airspy, HackRF, SDRplay, 978 MHz U
 - **Receiver tuning.** Compare complete 60-second samples, accepted Mode S messages per second, app rejections and anonymous Mode A/C replies. Windows 2.4 MHz also reports decoded-frame strength and corrected bits. Choose a supported gain step when reported, or test bandwidth, PPM and decoder controls. Frame strength is not a noise-floor or clipping measurement.
 - **Private message capture.** Set a size limit in Receiver to record delivered frames before aircraft validation, including unidentified or rejected frames. The local archive reports drops and rotates at the selected limit. It cannot recover transmissions the radio never demodulated.
 - **Optional Flightradar24 sharing.** Protected sharing-key storage, official registration integration, feeder supervision and connection/MLAT monitor values after installing the optional sharing component.
+- **API and receiver controls remain separate.** API results appear in the live display only. They never enter USB/network input, the official sharing feeder, receiver history or statistics, alert evaluation, CSV exports or receiver outputs. API polling is optional and runs only while enabled and the program is open. Its credential uses protected local storage; use is subject to the FR24 API subscription and terms.
 - **Offline Support centre.** Search the full guide, browse topics, save it to Markdown and use interactive prefilled dummy examples. F1 opens help.
 - **Private-by-default setup.** No default external alert recipient, local-only stream binding and no automatic support submission. A safe support template contains version/platform information without station details.
 
-Filters affect display/export only. Hidden traffic is still received, counted, evaluated for alerts and uploaded when sharing is enabled.
+Receiver filters affect display/export only. Hidden local traffic is still received, counted, evaluated for alerts and uploaded when sharing is enabled. The API overlay has a separate result cap and geographic area; it does not turn the USB or network receiver into an internet source. API query results and the current overlay are held in memory for display and are cleared when the program closes; the on-demand browser also keeps its response only in its open window.
 
 ## A look inside
 
@@ -108,11 +113,11 @@ Fresh airborne observations can produce **yellow or red estimated-conflict warni
 
 These ground-display estimates are not airborne TCAS, confirmed collision courses or manoeuvre guidance. Read the [thresholds, primary references and limitations](docs/CONFLICT-ALERTS.md). Missing reception can hide a conflict.
 
-## What the receiver can tell you
+## What the receiver and API can show
 
-The app displays the **data actually received**. A map that works worldwide does not mean the application downloads all worldwide flights. Coverage comes from your antenna or selected stream.
+The receiver display shows the **data actually received** from your antenna or selected stream. The optional API adds only the data returned by the Flightradar24 API for the area, endpoint and account subscription you choose. A map that works worldwide does not imply worldwide data is fetched automatically; live API requests use your configured geographic bounds and result limit.
 
-Many messages omit position or particular measurements. Missing or expired values are not guessed. Emitter category is not an aircraft model. Airline, registration, model, aircraft age, routes, schedules, passenger details and photos require other data sources and are not provided by this receiver-only implementation.
+Many messages omit position or particular measurements. Missing or expired values are not guessed. Emitter category is not an aircraft model. API data can add provider-supplied fields and historical lookups according to the documented endpoint and your subscription, but the website does not guarantee that every displayed website feature is available through its API. Airline, registration, model, aircraft age, routes, schedules, passenger details and photos appear only when supplied by an available API endpoint; they are never inferred from radio data.
 
 A unique-aircraft count means distinct ICAO24 addresses. An encounter is separated by a 20-minute reception gap; it is not necessarily one flight. Airport proximity is not evidence of departure, arrival, origin or destination. This is hobby monitoring software, not a navigation or safety-of-flight service.
 
@@ -135,6 +140,16 @@ Open **Alerts** for rules and **Receiver & settings → Storage & alerts** for d
 | Map tiles | 64 MiB | Separate fixed cache cap |
 
 Statistics come from structured observations, independently of log files. Part of the history budget is reserved for safe SQLite writes. A full/unavailable disk reports lost history while reception continues. Exports, backups, recordings, installers and build files are outside managed budgets. [Storage guide](docs/USER-GUIDE.md#storage).
+
+## Flightradar24 API
+
+Open **View → Flightradar24 API settings…** or **Receiver & settings → Flightradar24** to configure the optional live map overlay. Choose **View → Browse Flightradar24 API data…** to make an individual documented API query. Create an API token and subscription with Flightradar24 separately; the API token and receiver sharing key are different credentials. Entering an API token does not enable the official receiver feeder.
+
+Live overlay requests require a geographic area and are bounded by the requested result cap. Select light or full positions and a refresh interval between 15 and 3,600 seconds; the overlay defaults to off. Smaller areas, lower result limits and longer intervals reduce the number of returned flights and likely credit use. Settings show the refresh frequency and an indicative upper-bound credit estimate; the on-demand browser lists documented endpoint credit costs before each manual query. Actual credit use depends on returned data, account plan and current Flightradar24 pricing. Endpoint permissions, retention and terms are set by Flightradar24. Browser results appear in that dialog only and are cleared when it closes.
+
+Aircraft matching uses an ICAO24 address. A matching local row stays a single aircraft entry and retains its receiver data. If it already has a position, that receiver position remains the displayed one. If it has no position, the API position may fill the map location and is labelled “Receiver · FR24 position”; this display fallback does not write back into receiver data. Other API records are shown as API-only and attributed to Flightradar24. API records are kept in memory for the display and never enter receiver inputs, uploads, alerts, history/statistics, CSV export or stream outputs. The API overlay is not part of the optional headless loopback control interface.
+
+The overlay refreshes only at its configured interval while enabled and the program is open; selecting **Run query** sends one on-demand browser request. Manual queries share the configured minimum request interval, and provider rate limits can require longer waits. While the browser is open, automatic map polling pauses and resumes when it closes. The live overlay also pauses during recorded I/Q playback so historical traffic is not mixed with live API positions. Close the program to stop live requests. The feature requires internet access and API subscription permission. An account may reject an endpoint the subscription does not include. See the [Flightradar24 OpenAPI specification](https://fr24api.flightradar24.com/documentation/Flightradar24-API.yaml), [credit overview](https://fr24api.flightradar24.com/docs/credit-overview), [storage rules](https://fr24api.flightradar24.com/docs/storage-rules/) and [subscription information](https://fr24api.flightradar24.com/subscriptions-and-credits/).
 
 ## Help and support
 

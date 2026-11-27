@@ -47,6 +47,23 @@ class FeederDownloadTests(unittest.TestCase):
         self.assertEqual(result.returncode, 21, result.stdout+result.stderr)
         self.assertFalse(self.destination.exists())
 
+    def test_provider_prefixed_paths_preserve_component_and_write_summary(self):
+        existing = b'A different existing component'
+        self.destination.write_bytes(existing)
+        summary = self.root/'summary.txt'
+        script = Path(__file__).resolve().parents[1]/'installer/Install-Feeder.ps1'
+        provider_root = 'Microsoft.PowerShell.Core\\FileSystem::' + str(self.root)
+        provider_summary = 'Microsoft.PowerShell.Core\\FileSystem::' + str(summary)
+        result = subprocess.run(
+            ['powershell.exe', '-NoLogo', '-NoProfile', '-NonInteractive',
+             '-ExecutionPolicy', 'Bypass', '-File', str(script),
+             '-InstallDirectory', provider_root, '-SummaryPath', provider_summary],
+            capture_output=True, text=True, timeout=90, creationflags=0x08000000)
+        self.assertEqual(result.returncode, 21, result.stdout+result.stderr)
+        self.assertIn('left unchanged', result.stdout)
+        self.assertIn('left unchanged', summary.read_text(encoding='utf-8'))
+        self.assertEqual(self.destination.read_bytes(), existing)
+
     @unittest.skipUnless(os.environ.get('FRW_TEST_VENDOR_DOWNLOAD') == '1',
                          'Set FRW_TEST_VENDOR_DOWNLOAD=1 for the official HTTPS download integration check')
     def test_official_download_and_idempotent_repeat(self):

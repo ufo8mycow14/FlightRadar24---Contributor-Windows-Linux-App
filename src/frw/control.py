@@ -9,8 +9,8 @@ import io, json, os, platform, re, subprocess, threading, zipfile
 from typing import Any, Callable
 from urllib.parse import urlsplit, parse_qs
 from .config import ConfigError, validate
-from .migration import import_ini, export_ini
-from .runtime import HIDDEN, decoder_executable
+from .migration import import_ini, export_ini, export_pi24_profile
+from .runtime import HIDDEN, check_feeder_input, decoder_executable
 
 
 @dataclass(frozen=True)
@@ -82,6 +82,8 @@ class Controller:
             return ControlResult(200, receiver.feeder.signup_snapshot())
         if path == '/api/export':
             return ControlResult(200, export_ini(self.settings.value), 'text/plain; charset=utf-8', 'fr24feed.ini')
+        if path == '/api/export/pi24':
+            return ControlResult(200, export_pi24_profile(self.settings.value), 'text/plain; charset=utf-8', 'fr24feed-pi24.ini')
         if path == '/api/diagnostics':
             return ControlResult(200, self.diagnostics(), 'application/zip', 'flight-radar-diagnostics.zip')
         if path == '/api/devices':
@@ -102,10 +104,12 @@ class Controller:
         elif path == '/api/stop':
             receiver.stop()
         elif path == '/api/restart':
+            check_feeder_input(settings.value)
             receiver.stop()
             receiver.start()
         elif path == '/api/settings':
             config = validate(data['settings'])
+            check_feeder_input(config)
             if receiver.thread and receiver.thread.is_alive():
                 raise ConfigError('Stop the receiver before changing settings.')
             if receiver.feeder.signup_process and receiver.feeder.signup_process.poll() is None:

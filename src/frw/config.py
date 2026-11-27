@@ -15,12 +15,17 @@ DEFAULT = {
     'raw': False, 'raw_port': 30002, 'bs': False, 'bs_port': 30003,
     'beast': False, 'beast_port': 30005, 'bind_interface': '127.0.0.1',
     'logmode': 2, 'autostart_receiver': False,
-    'feed_enabled': False, 'mlat': True, 'mlat_without_gps': True,
+    'feed_enabled': False, 'feed_mode': 'relay', 'mlat': True, 'mlat_without_gps': True,
+    'pi24': {
+        'bs': False, 'raw': False, 'mpx': False, 'logmode': 1, 'windowmode': 0,
+        'path': '/usr/lib/fr24/dump1090', 'procargs': '--gain -10 --net',
+    },
     'original': {},
 }
 if os.name != 'nt':
     DEFAULT['serial_port'] = '/dev/ttyUSB0'
 RECEIVERS = ('usb', 'beast-tcp', 'avr-tcp', 'sbs-tcp', 'beast-serial', 'avr-serial', 'iq-file')
+PI24_DECODERS = ('/usr/lib/fr24/dump1090', '/usr/bin/dump1090-mutability', '/usr/bin/dump1090-fa')
 
 class ConfigError(ValueError): pass
 
@@ -30,6 +35,7 @@ def validate(config):
     if unknown: raise ConfigError('Unknown settings: ' + ', '.join(sorted(unknown)))
     c = copy.deepcopy(DEFAULT); c.update(config)
     if c['receiver'] not in RECEIVERS: raise ConfigError('Choose a supported receiver input.')
+    if c['feed_mode'] not in ('relay', 'direct-usb'): raise ConfigError('Choose relay or direct USB feeding.')
     for key in ['agc','bias_tee','phase_enhance','dc_filter','raw','bs','beast','autostart_receiver','feed_enabled','mlat','mlat_without_gps','mode_ac','meteo']:
         if type(c[key]) is not bool: raise ConfigError(key + ' must be true or false.')
     limits = {'input_port':(1,65535),'raw_port':(1024,65535),'bs_port':(1024,65535),
@@ -54,6 +60,28 @@ def validate(config):
     if platform.system() == 'Linux' and c['receiver'] in ('usb', 'iq-file') and c['sample_rate'] != 2400000:
         raise ConfigError('The Linux decoder uses a fixed 2.4 MHz sample rate for USB and I/Q input.')
     if c['error_correction'] not in (0,1,2) or c['logmode'] not in (0,1,2): raise ConfigError('Invalid correction or logging mode.')
+    if not isinstance(c['pi24'], dict) or set(c['pi24']) != set(DEFAULT['pi24']):
+        raise ConfigError('Invalid Flightradar24 feeder settings.')
+    vendor = c['pi24']
+    for key in ('bs', 'raw', 'mpx'):
+        if type(vendor[key]) is not bool: raise ConfigError(f'Flightradar24 {key} must be true or false.')
+    if type(vendor['logmode']) is not int or vendor['logmode'] not in (0,1,2):
+        raise ConfigError('Flightradar24 log mode must be 0, 1, or 2.')
+    if type(vendor['windowmode']) is not int or vendor['windowmode'] not in (0,1,2):
+        raise ConfigError('Invalid Flightradar24 window mode.')
+    if vendor['path'] not in PI24_DECODERS:
+        raise ConfigError('Unsupported Flightradar24 DVB-T decoder path.')
+    procargs = vendor['procargs']
+    if not isinstance(procargs, str) or len(procargs) > 64 or any(ch in procargs for ch in '\r\n\0;&|`$<>'):
+        raise ConfigError('Invalid Flightradar24 decoder arguments.')
+    match = re.fullmatch(r'--gain (-10|(?:0|[1-9][0-9]?)(?:\.\d+)?)(?: --net)?', procargs)
+    if not match:
+        raise ConfigError('Supported Flightradar24 decoder arguments are --gain <dB> with optional --net.')
+    gain = float(match.group(1))
+    if not math.isfinite(gain) or gain < 0 and gain != -10 or gain > 60:
+        raise ConfigError('Flightradar24 decoder gain must be -10 or 0–60 dB.')
+    if c['feed_mode'] == 'direct-usb' and c['receiver'] != 'usb':
+        raise ConfigError('Direct USB sharing requires the USB receiver input.')
     if c['baudrate'] not in (57600,115200,921600,1000000,3000000): raise ConfigError('Unsupported baud rate.')
     for key in ('device','host','serial_port','iq_file','bind_interface'):
         if not isinstance(c[key],str) or len(c[key])>1024 or any(ch in c[key] for ch in '\r\n\0'):
@@ -73,7 +101,7 @@ def validate(config):
     for k,v in c['original'].items():
         if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}',k) or not isinstance(v,str) or len(v)>2048 or any(ch in v for ch in '\r\n\0'):
             raise ConfigError('Original INI contains an invalid key or value.')
-        if k=='fr24key': raise ConfigError('Store the sharing key in its protected field.')
+        if k.casefold()=='fr24key': raise ConfigError('Store the sharing key in its protected field.')
     return c
 
 def parse_ini(text):
@@ -101,6 +129,47 @@ def format_ini(values):
         if any(x in v for x in '\r\n\0"'):raise ConfigError('INI values cannot contain newlines or quotation marks.')
         lines.append(f'{k}="{v}"')
     return '\n'.join(lines)+'\n'
+
+def parse_pi24_ini(text):
+    """Parse supported Pi24 settings without returning or storing its key."""
+    parsed = parse_ini(text)
+    if parsed.get('receiver', 'dvbt').lower() != 'dvbt':
+        raise ConfigError('The imported Flightradar24 configuration is not DVB-T direct USB.')
+    allowed = {'receiver', 'fr24key', 'bs', 'raw', 'path', 'logmode', 'procargs',
+               'windowmode', 'mpx', 'mlat', 'mlat-without-gps'}
+    unknown = set(parsed) - allowed
+    if unknown: raise ConfigError('Unsupported Flightradar24 settings: ' + ', '.join(sorted(unknown)))
+    values = copy.deepcopy(DEFAULT['pi24'])
+    result = {'pi24': values}
+    for key in ('bs', 'raw', 'mpx'):
+        if key in parsed:
+            if parsed[key].lower() not in ('yes', 'no'): raise ConfigError(f'Invalid Flightradar24 {key} setting.')
+            values[key] = parsed[key].lower() == 'yes'
+    for key in ('logmode', 'windowmode'):
+        if key in parsed:
+            if not re.fullmatch(r'\d+', parsed[key]): raise ConfigError(f'Invalid Flightradar24 {key}.')
+            values[key] = int(parsed[key])
+    for key in ('path', 'procargs'):
+        if key in parsed: values[key] = parsed[key]
+    for source, target in (('mlat', 'mlat'), ('mlat-without-gps', 'mlat_without_gps')):
+        if source in parsed:
+            if parsed[source].lower() not in ('yes', 'no'): raise ConfigError(f'Invalid Flightradar24 {source} setting.')
+            result[target] = parsed[source].lower() == 'yes'
+    validate({**DEFAULT, 'feed_mode': 'direct-usb', 'receiver': 'usb', **result})
+    return result
+
+def pi24_profile_values(config):
+    """Settings for a Pi24 configuration file, independent of the active receiver."""
+    c = validate(config)
+    vendor = c['pi24']
+    return {
+        'receiver': 'dvbt',
+        'bs': 'yes' if vendor['bs'] else 'no', 'raw': 'yes' if vendor['raw'] else 'no',
+        'path': vendor['path'], 'logmode': vendor['logmode'], 'procargs': vendor['procargs'],
+        'windowmode': vendor['windowmode'], 'mpx': 'yes' if vendor['mpx'] else 'no',
+        'mlat': 'yes' if c['mlat'] else 'no',
+        'mlat-without-gps': 'yes' if c['mlat_without_gps'] else 'no',
+    }
 
 def protect(data: bytes, decrypt=False):
     if os.name!='nt': raise ConfigError('Sharing-key storage requires Windows DPAPI.')

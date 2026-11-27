@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import math
+import json
 import time
 
 from PySide6.QtCore import QPointF, QRectF, QSize, Qt, QTimer, Signal
@@ -75,6 +76,7 @@ IGNORED_EXTRA = {
     "icao", "messages", "first_seen", "last_seen", "seen", "trail", "history", "position_time",
     "field_times", "field_ages", "field_sources", "data_source", "callsign", "altitude_source",
     "vr_source", "category_typecode", "altitude",
+    "source", "fr24_data", "fr24_status", "fr24_received_at", "fr24_identity",
 }
 
 
@@ -98,6 +100,17 @@ def _age_text(seconds):
     if seconds < 3600:
         return f"{seconds // 60}m {seconds % 60}s ago"
     return f"{seconds // 3600}h ago"
+
+
+def _api_display_value(value):
+    try:
+        if isinstance(value, (dict, list, tuple)):
+            text = json.dumps(value, ensure_ascii=False, sort_keys=True, default=str)
+        else:
+            text = str(value)
+    except (ValueError, OverflowError, TypeError):
+        return "Value too large or malformed to display"
+    return text if len(text) <= 4096 else text[:4093] + "…"
 
 
 def _display(key, value, kind, detail):
@@ -585,6 +598,8 @@ class NativeAircraftDetails(QWidget):
         if (self.lost or self.connection_error or self.error_message) and key != "icao":
             note = "Last known · " + note
         source = (row.get("field_sources") or {}).get(key)
+        if source is None and key.startswith("api_"):
+            source = "Flightradar24 API"
         if provenance and source:
             note += " · via " + str(source)
         return note
@@ -622,9 +637,16 @@ class NativeAircraftDetails(QWidget):
         icao = str(row.get("icao", ""))
         callsign = row.get("callsign")
         self.callsign.setText(str(callsign).strip() if _present(callsign) else icao or "Aircraft details")
-        self.subtitle.setText("ICAO24  " + icao if icao else "Callsign not received")
+        if row.get("source") == "fr24-api" and str(icao).startswith("FR24:"):
+            self.subtitle.setText("Flightradar24 record ID  " + str(icao)[5:])
+        else:
+            self.subtitle.setText("ICAO24  " + icao if icao else "Callsign not received")
         source = row.get("data_source") or "Source not reported"
-        if self.input_type == "iq-file":
+        if row.get("source") == "fr24-api":
+            source = "Flightradar24 API · display data"
+        elif row.get("fr24_data") is not None:
+            source = "Flightradar24 API · supplemental data; local receiver report shown"
+        elif self.input_type == "iq-file":
             source = "Recorded " + source
         elif self.input_type == "usb" and row.get("data_source"):
             source = "Terrestrial " + source
@@ -640,7 +662,17 @@ class NativeAircraftDetails(QWidget):
         elif isinstance(row.get("seen"), (int, float)) and math.isfinite(row["seen"]):
             seen = max(0, row["seen"] + time.time() - self.updated_at)
         state = "receiving"
-        if self.connection_error:
+        if row.get("source") == "fr24-api":
+            if self.error_message:
+                state = "error"
+                self.status.setText("API details unavailable")
+                self.message.setText(self.error_message)
+            else:
+                state = "quiet" if seen is not None and seen > 60 else "receiving"
+                self.status.setText("Flightradar24 API data")
+                self.message.setText("API position reported " + _age_text(seen)
+                                     if seen is not None else "API position time not reported")
+        elif self.connection_error:
             state = "error"
             self.status.setText("Connection interrupted")
             self.message.setText("Receiver connection interrupted. Showing last known reports.")
@@ -691,6 +723,12 @@ class NativeAircraftDetails(QWidget):
         scalars = [(key, row.get(key)) for key in reported_keys
                    if key not in known and not isinstance(row.get(key), (dict, list, tuple))
                    and (_present(row.get(key)) or self._field_age(key) is not None)]
+        api_data = row.get("fr24_data")
+        if isinstance(api_data, dict):
+            for key, value in api_data.items():
+                display_key = "api_" + str(key)
+                value = None if value is None else _api_display_value(value)
+                scalars.append((display_key, value))
         keys = {key for key, _ in scalars}
         for key in list(set(self.extra_rows) - keys):
             for widget in self.extra_rows.pop(key):
@@ -701,11 +739,14 @@ class NativeAircraftDetails(QWidget):
             note.deleteLater()
         ordered = sorted(scalars)
         for key, val in ordered:
-            value_text = _display(key, val, "boolean" if isinstance(val, bool) else "text", row) if _present(val) else "Stale · unavailable"
+            value_text = (_display(key, val, "boolean" if isinstance(val, bool) else "text", row)
+                          if _present(val) else "Not reported" if key.startswith("api_") else "Stale · unavailable")
             if key in self.extra_rows:
                 self.extra_rows[key][1].setText(value_text)
             else:
-                label = _label(key.replace("_", " ").capitalize(), "broadcastName")
+                label_text = ("Flightradar24 · " + key[4:].replace("_", " ").capitalize()
+                              if key.startswith("api_") else key.replace("_", " ").capitalize())
+                label = _label(label_text, "broadcastName")
                 value = _label(value_text, "broadcastValue", selectable=True)
                 value.setAlignment(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
                 self.extra_rows[key] = (label, value)

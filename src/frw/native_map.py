@@ -294,6 +294,8 @@ class _MapCanvas(QWidget):
                 ring = radius + (5 if flash_on else 2)
                 painter.drawEllipse(point, ring, ring)
             lines = map_label_lines(row, self.display, self.station)
+            if lines and (row.get('source') == 'fr24-api' or row.get('fr24_position')):
+                lines[0] += ' · FR24'
             # Warning identity remains visible even with ordinary labels hidden.
             if level:
                 if not lines:
@@ -861,7 +863,9 @@ class NativeMap(QWidget):
             self._centered = True
         count = len(self.canvas.rows)
         source = 'Recorded playback' if config.get('receiver') == 'iq-file' else 'Live positions'
+        api_count = sum(1 for row in self.canvas.rows if row.get('source') == 'fr24-api' or row.get('fr24_position'))
         self.summary.setText(f'{source} · {count} positioned'
+                             + (f' ({api_count} from Flightradar24)' if api_count else '')
                              + (f' · {len(rows) - count} without coordinates' if len(rows) != count else ''))
         if conflicts is not None:
             if not self.canvas.display.get('conflict_enabled', True):

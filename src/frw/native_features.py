@@ -530,7 +530,9 @@ class AirportDialog(QDialog):
         catalog=Path(__file__).parent/'data/airports.json'
         if catalog.exists():
             self.catalog=json.loads(catalog.read_text('utf-8'))
-        self.search.textChanged.connect(self.search_airports);self.results.itemClicked.connect(self.choose)
+        self.search.textChanged.connect(self.search_airports)
+        self.results.itemClicked.connect(self.choose)
+        self.results.itemDoubleClicked.connect(self.choose_and_save)
         for key,title in [('code','ICAO / local code'),('name','Airport name'),('latitude','Latitude (decimal degrees)'),('longitude','Longitude (decimal degrees)'),('radius_nm','Monitoring radius (NM)')]:
             control=QLineEdit();control.setAccessibleName(title);self.fields[key]=control
             if airport:
@@ -559,6 +561,10 @@ class AirportDialog(QDialog):
         for key in ('code','name','latitude','longitude'):
             self.fields[key].setText(str(airport[key]))
 
+    def choose_and_save(self,item):
+        self.choose(item)
+        self.save()
+
     def save(self):
         try:
             value={key:control.text().strip() for key,control in self.fields.items()}
@@ -572,7 +578,7 @@ class AirportDialog(QDialog):
 class FeaturePreferences(QScrollArea):
     def __init__(self,model,parent=None):
         super().__init__(parent)
-        self.model=model;self.initialized=False;self.fields={};self.secrets={}
+        self.model=model;self.initialized=False;self._loaded_config=None;self.fields={};self.secrets={}
         self.setWidgetResizable(True)
         body=QWidget();layout=QVBoxLayout(body);self.setWidget(body)
         layout.setContentsMargins(18,16,18,18)
@@ -652,26 +658,50 @@ class FeaturePreferences(QScrollArea):
         layout.addWidget(airportbox);layout.addStretch(1)
         model.changed.connect(self.update_config)
 
+    def _populate_controls(self,config):
+        self.history.setChecked(config['history_enabled'])
+        for key,control in self.fields.items():
+            value=config.get(key,config['delivery'].get(key))
+            control.setValue(value) if isinstance(control,QSpinBox) else control.setText(value)
+        display=config.get('display') or {}
+        self.display_units.setCurrentIndex(max(0,self.display_units.findData(display.get('units','aviation'))))
+        self.display_labels.setCurrentIndex(max(0,self.display_labels.findData(display.get('map_labels','callsign'))))
+        selected=set(display.get('map_label_fields',['callsign','altitude','groundspeed']))
+        for key,control in self.label_fields.items():control.setChecked(key in selected)
+        self.display_hover.setChecked(display.get('aircraft_hover',True));self.display_conflict.setChecked(display.get('conflict_enabled',True));self.display_conflict_flash.setChecked(display.get('conflict_flash',True))
+        self.display_rings.setChecked(bool(display.get('range_rings',True)));self.display_follow.setChecked(bool(display.get('follow_selected',False)))
+        self.display_waypoints.setChecked(bool(display.get('aviation_waypoints',False)))
+        self.display_cardinals.setChecked(bool(display.get('cardinals',True)));self.display_flash.setChecked(bool(display.get('emergency_flash',True)))
+        self.display_north.setCurrentIndex(max(0,self.display_north.findData(display.get('north_reference','true'))))
+        self.display_variation.setValue(float(display.get('magnetic_variation',0) or 0))
+        self.email_enabled.setChecked(config['delivery']['email_enabled']);self.webhook_enabled.setChecked(config['delivery']['webhook_enabled'])
+        self.tls.setCurrentIndex(self.tls.findData(config['delivery']['smtp_tls']));self.webkind.setCurrentIndex(self.webkind.findData(config['delivery']['webhook_kind']))
+        self._loaded_config=copy.deepcopy(config)
+
+    def _matches_config(self,config):
+        if not config:
+            return False
+        display = self.current_display()
+        saved = config['display']
+        if any(display[k] != saved.get(k) for k in display if k != 'map_label_fields') or set(display['map_label_fields']) != set(saved.get('map_label_fields', [])):
+            return False
+        for key, control in self.fields.items():
+            current = control.value() if isinstance(control,QSpinBox) else control.text().strip()
+            if current != config.get(key,config['delivery'].get(key)):
+                return False
+        return not (self.history.isChecked() != config['history_enabled'] or
+                    self.email_enabled.isChecked() != config['delivery']['email_enabled'] or
+                    self.webhook_enabled.isChecked() != config['delivery']['webhook_enabled'] or
+                    self.tls.currentData() != config['delivery']['smtp_tls'] or
+                    self.webkind.currentData() != config['delivery']['webhook_kind'] or
+                    self.clear_secrets.isChecked() or any(control.text() for control in self.secrets.values()))
+
     def update_config(self,config):
-        if not self.initialized:
+        if not self.initialized or self._loaded_config is None or self._matches_config(self._loaded_config):
             self.initialized=True
-            self.history.setChecked(config['history_enabled'])
-            for key,control in self.fields.items():
-                value=config.get(key,config['delivery'].get(key))
-                control.setValue(value) if isinstance(control,QSpinBox) else control.setText(value)
-            display=config.get('display') or {}
-            self.display_units.setCurrentIndex(max(0,self.display_units.findData(display.get('units','aviation'))))
-            self.display_labels.setCurrentIndex(max(0,self.display_labels.findData(display.get('map_labels','callsign'))))
-            selected=set(display.get('map_label_fields',['callsign','altitude','groundspeed']))
-            for key,control in self.label_fields.items():control.setChecked(key in selected)
-            self.display_hover.setChecked(display.get('aircraft_hover',True));self.display_conflict.setChecked(display.get('conflict_enabled',True));self.display_conflict_flash.setChecked(display.get('conflict_flash',True))
-            self.display_rings.setChecked(bool(display.get('range_rings',True)));self.display_follow.setChecked(bool(display.get('follow_selected',False)))
-            self.display_waypoints.setChecked(bool(display.get('aviation_waypoints',False)))
-            self.display_cardinals.setChecked(bool(display.get('cardinals',True)));self.display_flash.setChecked(bool(display.get('emergency_flash',True)))
-            self.display_north.setCurrentIndex(max(0,self.display_north.findData(display.get('north_reference','true'))))
-            self.display_variation.setValue(float(display.get('magnetic_variation',0) or 0))
-            self.email_enabled.setChecked(config['delivery']['email_enabled']);self.webhook_enabled.setChecked(config['delivery']['webhook_enabled'])
-            self.tls.setCurrentIndex(self.tls.findData(config['delivery']['smtp_tls']));self.webkind.setCurrentIndex(self.webkind.findData(config['delivery']['webhook_kind']))
+            self._populate_controls(config)
+        elif self._matches_config(config):
+            self._loaded_config=copy.deepcopy(config)
         fill_table(self.airport_table,config['airports'],['code','name','latitude','longitude','radius_nm'])
         self.secret_state.setText('Stored protected alert credentials: '+(', '.join(key.replace('_',' ') for key,value in self.model.stored.items() if value) or 'none'))
 
@@ -690,9 +720,8 @@ class FeaturePreferences(QScrollArea):
             changes['delivery']['webhook_enabled']=False
         def saved():
             for control in self.secrets.values():control.clear()
-            self.email_enabled.setChecked(self.model.value['delivery']['email_enabled'])
-            self.webhook_enabled.setChecked(self.model.value['delivery']['webhook_enabled'])
             self.clear_secrets.setChecked(False)
+            self._populate_controls(self.model.value)
         self.model.save(changes,secrets or None,on_saved=saved)
 
     def current_display(self):
@@ -709,24 +738,20 @@ class FeaturePreferences(QScrollArea):
     def has_unsaved_changes(self):
         if not self.initialized:
             return False
-        config = self.model.value
-        display = self.current_display()
-        saved = config['display']
-        if any(display[k] != saved.get(k) for k in display if k != 'map_label_fields') or set(display['map_label_fields']) != set(saved.get('map_label_fields', [])):
-            return True
-        for key, control in self.fields.items():
-            current = control.value() if isinstance(control,QSpinBox) else control.text().strip()
-            if current != config.get(key,config['delivery'].get(key)):
-                return True
-        return (self.history.isChecked() != config['history_enabled'] or
-                self.email_enabled.isChecked() != config['delivery']['email_enabled'] or
-                self.webhook_enabled.isChecked() != config['delivery']['webhook_enabled'] or
-                self.tls.currentData() != config['delivery']['smtp_tls'] or
-                self.webkind.currentData() != config['delivery']['webhook_kind'] or
-                self.clear_secrets.isChecked() or any(control.text() for control in self.secrets.values()))
+        return not self._matches_config(self.model.value)
 
     def save_display(self):
-        self.model.save({'display':self.current_display()})
+        def saved():
+            display=self.model.value['display']
+            self.display_units.setCurrentIndex(max(0,self.display_units.findData(display.get('units','aviation'))))
+            self.display_labels.setCurrentIndex(max(0,self.display_labels.findData(display.get('map_labels','callsign'))))
+            selected=set(display.get('map_label_fields',['callsign','altitude','groundspeed']))
+            for key,control in self.label_fields.items():control.setChecked(key in selected)
+            if self._matches_config(self.model.value):
+                self._loaded_config=copy.deepcopy(self.model.value)
+            elif self._loaded_config is not None:
+                self._loaded_config['display']=copy.deepcopy(display)
+        self.model.save({'display':self.current_display()},on_saved=saved)
 
     def external_test(self):
         self.feedback.setText('Sending a labelled external test using saved delivery settings…')

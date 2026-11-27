@@ -7,7 +7,7 @@
   #define SetupOutput "..\work\installer-dist"
 #endif
 #ifndef AppVersion
-  #define AppVersion "0.9.0"
+  #define AppVersion "0.10.1"
 #endif
 #ifndef PublicRelease
   #define PublicRelease 0
@@ -43,6 +43,7 @@ PrivilegesRequired=admin
 CloseApplications=yes
 RestartApplications=no
 SetupLogging=yes
+Uninstallable=not IsIsolatedInstall
 InfoBeforeFile=Setup-Info.txt
 
 [Tasks]
@@ -60,8 +61,8 @@ Source: "Install-Feeder.ps1"; DestDir: "{app}\setup"; Flags: ignoreversion
 #endif
 
 [Icons]
-Name: "{group}\FlightRadar24"; Filename: "{app}\FlightRadar24.exe"; WorkingDir: "{app}"
-Name: "{autodesktop}\FlightRadar24"; Filename: "{app}\FlightRadar24.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+Name: "{group}\FlightRadar24"; Filename: "{app}\FlightRadar24.exe"; IconFilename: "{app}\FlightRadar24.exe"; AppUserModelID: "FlightRadar24"; WorkingDir: "{app}"
+Name: "{autodesktop}\FlightRadar24"; Filename: "{app}\FlightRadar24.exe"; IconFilename: "{app}\FlightRadar24.exe"; AppUserModelID: "FlightRadar24"; WorkingDir: "{app}"; Tasks: desktopicon
 
 [Run]
 Filename: "{app}\FlightRadar24.exe"; Description: "Open FlightRadar24"; Flags: nowait postinstall skipifsilent runasoriginaluser
@@ -73,6 +74,11 @@ var
   DriverRestart: Boolean;
   FeederSummary: String;
   FeederFailed: Boolean;
+
+function IsIsolatedInstall(): Boolean;
+begin
+  Result := ExpandConstant('{param:FRWISOLATED|0}') = '1';
+end;
 
 function GetInstallDirectory(Param: String): String;
 var

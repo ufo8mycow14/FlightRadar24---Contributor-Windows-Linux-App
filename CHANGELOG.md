@@ -1,5 +1,24 @@
 # Changes
 
+## 0.10.1 — unreleased
+
+- Edit the Pi24 feeder profile in the native Flightradar24 settings and export it without the sharing key. The Windows receiver still opens its RTL-SDR directly; the FR24 uploader still consumes the decoded stream. Saving a profile does not enable direct DVB-T in the uploader or override the service's MLAT decision.
+
+## 0.10.0 — unreleased
+
+- Added an optional Flightradar24 API live map overlay with light/full data, a user-selected geographic area, result cap, refresh interval and protected API token. Local receiver positions take priority; a matched unpositioned receiver row can display a clearly labelled FR24 position without changing receiver data. Unmatched API aircraft show provider attribution.
+- Added a read-only browser for documented API live and historic positions, events, summaries, tracks, airports, airlines, counts and account usage. Requests are user initiated and display endpoint credit estimates.
+- Kept API results display-only and temporary: API aircraft do not enter USB/network receiver inputs, sharing uploads, receiver alerts, statistics/history, CSV exports or stream outputs. Automatic map requests pause during recorded I/Q playback and while the manual data browser is open; manual and automatic requests share the configured interval and provider cooldowns.
+- Aligned the Qt window, tray, executable, Start menu and desktop shortcut icon with the shared FlightRadar24 application identity.
+
+## 0.9.1
+
+- Fixed Storage & alerts preferences staying stuck on startup values after display/filter updates elsewhere, which previously triggered false unsaved-change warnings and deferred automatic updates.
+- Isolated window and detached-table layout state inside each profile folder (`ui-state.ini`), migrating existing default-profile layout settings on first launch without leaking across `--data-dir` profiles.
+- Fixed Practice receiver validation when optional coordinates or antenna altitude are left blank, updated the waypoint import dialog and offline guide to the 150,000-record limit, and fixed optional feeder setup path handling on UNC/provider paths.
+- Fixed headless loopback web UI settings saves (`key_storage` rejection), updated its version badge, and exposed tuner bandwidth, Mode A/C, inferred Comm-B weather and local message capture controls.
+- Airspace usability: `View → Follow selected aircraft on map` is now a live checkable toggle on the map, double-clicking a bundled airport search result selects and saves it immediately, `Ctrl+E` exports visible aircraft CSV, and `Esc` closes the selected aircraft details panel when not in full screen.
+
 ## 0.9.0
 
 - Worldwide historical waypoints and a yellow dotted heading-based guide on aircraft hover or selection. The guide advances toward nearby fixes; it is not a filed route.

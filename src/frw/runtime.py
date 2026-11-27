@@ -13,6 +13,10 @@ from .streams import AVRParser, BeastParser, Broadcast, Frame
 
 HIDDEN = 0x08000000 if os.name == 'nt' else 0
 
+def check_feeder_input(config):
+    if config.get('feed_mode') == 'direct-usb':
+        raise ConfigError('FR24-owned DVB-T is not available in this build. The app can read the physical USB receiver, but its FR24 uploader takes a network stream. Use the relay or export the Pi24 profile.')
+
 def hidden_startupinfo():
     """Give Windows helper startup an explicit hidden-window hint as well."""
     if os.name != 'nt': return None
@@ -268,6 +272,7 @@ class Receiver:
             if self.thread and self.thread.is_alive(): raise ConfigError('The receiver is already running.')
             if self.feeder.signup_process and self.feeder.signup_process.poll() is None: raise ConfigError('Finish or cancel registration before starting reception.')
             c = dict(self.settings.value)
+            check_feeder_input(c)
             if c['receiver'] in ('usb','iq-file'):
                 decoder_executable(self.bundle)
             if c['receiver'] == 'iq-file' and not Path(c['iq_file']).is_file():
@@ -555,6 +560,7 @@ class Feeder:
         stale = self.root/'etc/fr24feed.ini'
         if stale.exists(): stale.unlink()
     def prepare(self, c, signup=False):
+        check_feeder_input(c)
         if platform.system() == 'Linux':
             return self._prepare_linux(c, signup)
         if platform.system() != 'Windows':

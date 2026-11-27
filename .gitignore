@@ -11,6 +11,8 @@ work/*
 **/updates.json
 **/updates/
 **/sharing-key*
+**/fr24-api-token*
+**/fr24-api-settings.json
 **/alert-secrets*
 **/message-capture/
 **/airspace.sqlite3*

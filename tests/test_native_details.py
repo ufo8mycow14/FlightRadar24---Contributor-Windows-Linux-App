@@ -104,6 +104,24 @@ class NativeAircraftDetailsTests(unittest.TestCase):
         self.assertEqual(self.widget.status.text(), "Receiving")
         self.assertTrue(self.widget.message.text().startswith("Last received"))
 
+    def test_api_only_detail_shows_api_identity_source_time_and_all_fields(self):
+        now = time.time()
+        self.widget.set_detail({
+            "icao": "FR24:opaque-7", "source": "fr24-api", "data_source": "Flightradar24 API",
+            "last_seen": now - 20, "seen": 20, "callsign": "TEST7",
+            "fr24_data": {"fr24_id": "opaque-7", "flight": "FLIGHT7", "registration": "VH-ABC",
+                          "optional": None, "nested": {"value": 4}},
+        })
+        self.app.processEvents()
+        self.assertEqual(self.widget.status.text(), "Flightradar24 API data")
+        self.assertIn("record ID", self.widget.subtitle.text())
+        self.assertNotIn("ICAO24", self.widget.subtitle.text())
+        self.assertEqual(self.widget.source.text(), "Flightradar24 API · display data")
+        self.assertIn("API position reported", self.widget.message.text())
+        self.assertEqual(self.widget.extra_rows["api_registration"][0].text(), "Flightradar24 · Registration")
+        self.assertEqual(self.widget.extra_rows["api_optional"][1].text(), "Not reported")
+        self.assertEqual(self.widget.extra_rows["api_nested"][1].text(), '{"value": 4}')
+
     def test_scroll_identity_extra_rows_and_close_signal(self):
         detail = self.detail()
         self.widget.set_detail(detail)

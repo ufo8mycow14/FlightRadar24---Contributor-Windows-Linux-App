@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import math
 import os
+import re
 from pathlib import Path
 
 from PySide6.QtCore import Qt, QTimer, Signal
@@ -98,6 +99,7 @@ class NativePages(QWidget):
 
     notice = Signal(str, bool)
     settingsChanged = Signal(dict)
+    apiSettingsRequested = Signal()
 
     def __init__(self, invoke, parent=None):
         super().__init__(parent)
@@ -320,6 +322,83 @@ class NativePages(QWidget):
 
     def _build_sharing(self):
         page = self._page('sharing', 'Flightradar24')
+        page.addWidget(self._help('Incoming API data and outgoing receiver sharing are independent. An API token is not a sharing key.'))
+        page.addWidget(self._button('Flightradar24 API settings…', lambda button: self.apiSettingsRequested.emit()))
+        pi24 = QGroupBox('FR24 feeder and USB input')
+        pi24_layout = QVBoxLayout(pi24)
+        pi24_layout.addWidget(self._help(
+            'With a USB input the Windows decoder controls the physical RTL-SDR. The official uploader reads its timestamped stream. A Pi24 profile is separate from that active connection.'
+        ))
+        self.feed_mode = QComboBox()
+        self.feed_mode.setObjectName('feed_mode')
+        self.feed_mode.addItem('Use the app’s receiver stream (relay)', 'relay')
+        self.feed_mode.addItem('Direct DVB-T USB (unavailable in this Windows runtime)', 'direct-usb')
+        self.feed_mode.model().item(1).setEnabled(False)
+        self.feed_mode.currentIndexChanged.connect(self._feed_mode_changed)
+        pi24_layout.addWidget(self.feed_mode)
+        self.pi24_state = self._help('Configuration applies when you next start the receiver.')
+        self.pi24_state.setWordWrap(True)
+        pi24_layout.addWidget(self.pi24_state)
+        pi24_form_box = QWidget()
+        self.pi24_form = QFormLayout(pi24_form_box)
+        self.pi24_form.setFieldGrowthPolicy(QFormLayout.FieldGrowthPolicy.AllNonFixedFieldsGrow)
+        self.pi24_form.setVerticalSpacing(8)
+        self.pi24_fields = {}
+        for key, label in (('bs', 'BaseStation / SBS output'), ('raw', 'RAW output'), ('mpx', 'MPX output')):
+            control = QCheckBox(label)
+            control.setObjectName('pi24_' + key)
+            control.toggled.connect(lambda checked: self._edited('pi24'))
+            self.pi24_fields[key] = control
+            self.pi24_form.addRow(control)
+        self.pi24_logmode = QComboBox()
+        self.pi24_logmode.setObjectName('pi24_logmode')
+        for value, label in ((0, 'Off'), (1, '48 hours'), (2, '72 hours')):
+            self.pi24_logmode.addItem(label, value)
+        self.pi24_logmode.currentIndexChanged.connect(lambda _: self._edited('pi24'))
+        self.pi24_fields['logmode'] = self.pi24_logmode
+        self.pi24_form.addRow('Feeder log retention', self.pi24_logmode)
+        self.pi24_path = QLineEdit()
+        self.pi24_path.setObjectName('pi24_path')
+        self.pi24_path.setMaxLength(512)
+        self.pi24_path.setToolTip('Saved as a Pi24 profile value. It is not applied by the Windows relay.')
+        self.pi24_path.textEdited.connect(lambda _: self._edited('pi24'))
+        self.pi24_fields['path'] = self.pi24_path
+        self.pi24_form.addRow('FR24 decoder path', self.pi24_path)
+        self.pi24_procargs = QLineEdit()
+        self.pi24_procargs.setObjectName('pi24_procargs')
+        self.pi24_procargs.setMaxLength(128)
+        self.pi24_procargs.setPlaceholderText('--gain -10 --net')
+        self.pi24_procargs.setToolTip('Saved as a Pi24 profile value. It is not applied by the Windows relay.')
+        self.pi24_procargs.textEdited.connect(lambda _: self._edited('pi24'))
+        self.pi24_fields['procargs'] = self.pi24_procargs
+        self.pi24_form.addRow('Decoder options', self.pi24_procargs)
+        self.pi24_gain_button = self._button(
+            'Use Pi24 gain in Receiver settings', lambda _: self._apply_pi24_gain())
+        self.pi24_gain_button.setObjectName('pi24_use_gain')
+        self.pi24_form.addRow(self.pi24_gain_button)
+        self.pi24_apply_windows_button = self._button(
+            'Apply supported Pi24 settings to Windows receiver',
+            lambda _: self._apply_pi24_windows_settings())
+        self.pi24_apply_windows_button.setObjectName('pi24_apply_windows_settings')
+        self.pi24_form.addRow(self.pi24_apply_windows_button)
+        pi24_layout.addWidget(self._help(
+            'Copying changes the Windows controls, not the running receiver. Save gain on the Receiver page; save RAW/SBS and local logging under Data & settings. The app does not run the Pi command line or apply its MPX, window mode or log retention.'
+        ))
+        self.pi24_windowmode = QComboBox()
+        self.pi24_windowmode.setObjectName('pi24_windowmode')
+        for mode in (0, 1, 2):
+            self.pi24_windowmode.addItem(str(mode), mode)
+        self.pi24_windowmode.currentIndexChanged.connect(lambda _: self._edited('pi24'))
+        self.pi24_fields['windowmode'] = self.pi24_windowmode
+        self.pi24_form.addRow('Feeder window mode', self.pi24_windowmode)
+        pi24_layout.addWidget(pi24_form_box)
+        self.pi24_save_button = self._button('Save Pi24 profile and MLAT settings', self._save_pi24, protected=True)
+        pi24_layout.addWidget(self.pi24_save_button)
+        self.pi24_export_button = self._button('Export saved Pi24 profile…', lambda b: self._export(
+            '/api/export/pi24', 'Export saved Pi24 profile', 'fr24feed.ini', 'INI files (*.ini);;All files (*)', b))
+        pi24_layout.addWidget(self.pi24_export_button)
+        pi24_layout.addWidget(self._help('Exports saved Pi24 template values without your sharing key. Add the key securely on the target feeder before using the file.'))
+        page.addWidget(pi24)
         page.addWidget(self._field_group('Sharing', 'sharing'))
         page.addWidget(self._button('Save sharing settings', lambda b: self._save(('sharing',), b), protected=True))
         key_box = QGroupBox('Sharing key')
@@ -391,6 +470,22 @@ class NativePages(QWidget):
         if key in ('receiver', 'sample_rate') and not self._populating:
             self._input_visibility()
 
+    def _feed_mode_changed(self, _index):
+        self._edited('feed_mode')
+        self._update_feed_mode_note()
+
+    def _update_feed_mode_note(self, receiver=None):
+        direct = self.feed_mode.currentData() == 'direct-usb'
+        if direct:
+            text = 'Direct USB is unavailable in this Windows runtime. The saved Pi24 values are a configuration template; the working Windows receiver remains in relay mode.'
+            if receiver:
+                text += f' Feeder currently reports receiver: {receiver}.'
+        else:
+            text = 'For USB input the Windows decoder controls the stick; the FR24 uploader reads a stream. Pi24-specific fields are saved as a template, not applied to the uploader. MLAT settings request participation; the service reports permission.'
+            if receiver:
+                text += f' Feeder currently reports receiver: {receiver}.'
+        self.pi24_state.setText(text)
+
     def _input_visibility(self):
         receiver = self.fields['receiver'].currentData()
         native = receiver in ('usb', 'iq-file')
@@ -455,8 +550,22 @@ class NativePages(QWidget):
                     widget.setValue(value)
                 else:
                     widget.setText('' if value is None else str(value))
+            if 'feed_mode' not in self._dirty:
+                index = self.feed_mode.findData(self.config['feed_mode'])
+                if index >= 0:
+                    self.feed_mode.setCurrentIndex(index)
+            if 'pi24' not in self._dirty:
+                for key, control in self.pi24_fields.items():
+                    value = self.config['pi24'][key]
+                    if isinstance(control, QCheckBox):
+                        control.setChecked(value)
+                    elif isinstance(control, QComboBox):
+                        control.setCurrentIndex(control.findData(value))
+                    else:
+                        control.setText(str(value))
         finally:
             self._populating = False
+        self._update_feed_mode_note()
         self.key_status.setText(self.key_storage if self.has_key else 'No sharing key is stored yet.')
         self._input_visibility()
         self._sync_buttons()
@@ -494,6 +603,102 @@ class NativePages(QWidget):
             self.refresh_settings()
             self._notify('Settings saved. Start the receiver to use them.')
         self._request('/api/settings', {'settings': proposed}, saved, button)
+
+    def _save_pi24(self, button):
+        try:
+            submitted = {
+                'feed_mode': 'relay',
+                'pi24': {
+                    'bs': self.pi24_fields['bs'].isChecked(),
+                    'raw': self.pi24_fields['raw'].isChecked(),
+                    'mpx': self.pi24_fields['mpx'].isChecked(),
+                    'logmode': self.pi24_logmode.currentData(),
+                    'windowmode': self.pi24_windowmode.currentData(),
+                    'path': self.pi24_path.text().strip(),
+                    'procargs': self.pi24_procargs.text().strip(),
+                },
+                'mlat': self._value('mlat'),
+                'mlat_without_gps': self._value('mlat_without_gps'),
+            }
+            proposed = copy.deepcopy(self.config)
+            proposed.update(copy.deepcopy(submitted))
+            proposed = validate(proposed)
+        except (ValueError, TypeError) as error:
+            self._notify(str(error), True)
+            return
+
+        def saved(_value):
+            if self.feed_mode.currentData() != submitted['feed_mode']:
+                index = self.feed_mode.findData(submitted['feed_mode'])
+                if index >= 0:
+                    self.feed_mode.setCurrentIndex(index)
+            self._dirty.discard('feed_mode')
+            current_pi24 = {key: control.currentData() if isinstance(control, QComboBox)
+                            else control.isChecked() if isinstance(control, QCheckBox)
+                            else control.text().strip()
+                            for key, control in self.pi24_fields.items()}
+            if current_pi24 == submitted['pi24']:
+                self._dirty.discard('pi24')
+            self.config = proposed
+            self.refresh_settings()
+            for key in ('mlat','mlat_without_gps'):
+                if self._value(key) == submitted[key]:
+                    self._dirty.discard(key)
+            self._notify('Pi24 profile saved. Only the MLAT settings apply to the Windows uploader on its next start.')
+
+        self._request('/api/settings', {'settings': proposed}, saved, button)
+
+    def _apply_pi24_gain(self):
+        if self._value('receiver') != 'usb':
+            self._notify('Select USB RTL-SDR under Receiver settings before copying a Pi24 gain value.', True)
+            return
+        try:
+            options = self.pi24_procargs.text().strip()
+            validate({**self.config, 'pi24': {**self.config['pi24'], 'procargs': options}})
+        except (KeyError, TypeError, ValueError) as error:
+            self._notify(str(error), True)
+            return
+        gain = float(options.split()[1])
+        self.fields['gain'].setValue(gain)
+        self._notify(f'Copied {gain:g} dB into the unsaved Windows receiver gain. Save Receiver settings to use it.')
+
+    def _apply_pi24_windows_settings(self):
+        if self._value('receiver') != 'usb':
+            self._notify('Select USB RTL-SDR under Receiver settings before applying Pi24 values.', True)
+            return
+        pi24_values = {key: control.currentData() if isinstance(control, QComboBox)
+                       else control.isChecked() if isinstance(control, QCheckBox)
+                       else control.text().strip()
+                       for key, control in self.pi24_fields.items()}
+        try:
+            validate({**self.config, 'pi24': pi24_values})
+        except (TypeError, ValueError) as error:
+            self._notify(str(error), True)
+            return
+        enable_raw = pi24_values['raw']
+        enable_sbs = pi24_values['bs']
+        if (enable_raw or enable_sbs) and self._value('bind_interface') == '0.0.0.0':
+            self._notify('Set Data stream access to This PC only before enabling RAW or SBS listeners.', True)
+            return
+        gain = float(pi24_values['procargs'].split()[1])
+        local_logmode = 0 if pi24_values['logmode'] == 0 else 1
+        try:
+            validate({**self.config, 'pi24': pi24_values, 'gain': gain,
+                      'raw': enable_raw, 'bs': enable_sbs, 'logmode': local_logmode,
+                      'receiver': self._value('receiver'), 'raw_port': self._value('raw_port'),
+                      'bs_port': self._value('bs_port'), 'beast': self._value('beast'),
+                      'beast_port': self._value('beast_port'),
+                      'bind_interface': self._value('bind_interface')})
+        except (TypeError, ValueError) as error:
+            self._notify(str(error), True)
+            return
+        self.fields['gain'].setValue(gain)
+        self.fields['raw'].setChecked(enable_raw)
+        self.fields['bs'].setChecked(enable_sbs)
+        self.fields['logmode'].setCurrentIndex(self.fields['logmode'].findData(local_logmode))
+        changed = ('gain', 'raw', 'bs', 'logmode')
+        self._dirty.update(changed)
+        self._notify('Copied to unsaved controls. Save gain on Receiver and save the output/log switches under Data & settings before restarting.')
 
     def _keep_sample(self):
         if self._current_sample:
@@ -567,6 +772,8 @@ class NativePages(QWidget):
         self._update_quality(status, state)
         feeder = status.get('feeder') or {}
         monitor = feeder.get('monitor') or {}
+        reported_receiver = monitor.get('cfg_receiver') or monitor.get('cfg-receiver')
+        self._update_feed_mode_note(reported_receiver)
         feed = monitor.get('feed_status') or monitor.get('feed-status') or 'Not confirmed'
         mlat = monitor.get('mlat_status') or monitor.get('mlat-status') or {
             'YES': 'Active', 'NO': 'Not active', 'NOT-PERMITTED': 'Not permitted by service',

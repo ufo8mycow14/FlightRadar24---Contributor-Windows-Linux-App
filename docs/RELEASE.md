@@ -1,8 +1,8 @@
 # Windows download and source files
 
-[Download the Windows x64 installer](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.9.0/FlightRadar24-0.9.0-Windows-x64-Setup.exe)
+[Download the latest verified Windows x64 installer, version 0.9.0](https://github.com/ufo8mycow14/FlightRadar24---Contributor-Windows-Linux-App/releases/download/v0.9.0/FlightRadar24-0.9.0-Windows-x64-Setup.exe)
 
-Version 0.9.0 is a native Windows desktop application. It needs no Python installation, browser, Raspberry Pi or Linux virtual machine. Linux remains a source/build target awaiting native verification; macOS is deferred.
+This published installer is version 0.9.0. The current 0.10.1 source includes an optional Flightradar24 API display and data browser, plus native Pi24 settings support; these changes are source-only and are not in the published installer. A matching newer Windows installer has not been published. The app is a native Windows desktop application. It needs no Python installation, browser, Raspberry Pi or Linux virtual machine. Linux remains a source/build target awaiting native verification; macOS is deferred.
 
 ## Install and start
 
@@ -21,7 +21,7 @@ The installer is unsigned. Check the file name, download location and published 
 | File | Purpose |
 | --- | --- |
 | `FlightRadar24-0.9.0-Windows-x64-Setup.exe` | App, receiver runtime, notices and offline driver setup, with optional vendor sharing download. |
-| `FlightRadar24-0.9.0-source.zip` | Project source, tests, installer source, current native patches and build instructions. |
+| `FlightRadar24-0.9.0-source.zip` | Project source, tests, installer source, current native patches and build instructions as of that release. |
 | `FlightRadar24-0.9.0-corresponding-source.zip` | Exact dependency source archives, the app source ZIP, helper source/overlays, notices and source index. |
 | `FlightRadar24-0.9.0-Windows-x64-Portable.zip` | Extract-and-run receiver; USB drivers and optional sharing require the installer. |
 | `SHA256SUMS.txt` | SHA-256 digests for the four release files. |

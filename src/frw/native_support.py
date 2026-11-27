@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+import math
 import time
 from pathlib import Path
 from PySide6.QtCore import Qt
@@ -275,8 +276,18 @@ class PracticeDialog(QDialog):
 
     def check_receiver(self):
         try:
-            values = {key: field.text().strip() if key == 'device' else float(field.text())
-                      for key,field in self.receiver_fields.items()}
+            values = {}
+            for key, field in self.receiver_fields.items():
+                text = field.text().strip()
+                if key == 'device':
+                    values[key] = text
+                elif not text:
+                    values[key] = None
+                else:
+                    value = float(text)
+                    if not math.isfinite(value):
+                        raise ValueError(f'{key}: enter a finite number.')
+                    values[key] = value
             validate({**example_receiver(), **values})
         except ValueError as error:
             self.feedback.setText('Example needs attention: ' + str(error))

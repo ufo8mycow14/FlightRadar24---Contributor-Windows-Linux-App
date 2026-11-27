@@ -3,6 +3,8 @@ from PySide6.QtCore import Qt, Signal
 from PySide6.QtWidgets import (QDialog, QDialogButtonBox, QFileDialog, QHBoxLayout,
                               QLabel, QLineEdit, QPushButton, QVBoxLayout)
 
+from .waypoints import MAX_POINTS
+
 
 class WaypointDialog(QDialog):
     catalogChanged = Signal(object)
@@ -31,7 +33,7 @@ class WaypointDialog(QDialog):
         layout.addWidget(self.cycle)
         format_text = QLabel('CSV columns: ident,latitude,longitude (decimal degrees). '
                              'X-Plane / FlightGear fix.dat and .dat.gz are also supported. '
-                             'Imports replace the selected layer; 12 MB / 100,000 records maximum.')
+                             f'Imports replace the selected layer; 12 MB / {MAX_POINTS:,} records maximum.')
         format_text.setWordWrap(True)
         layout.addWidget(format_text)
         row = QHBoxLayout()

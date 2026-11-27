@@ -21,8 +21,13 @@ from .display import (DISPLAY_DEFAULT, bearing_suffix, display_bearing, distance
     is_emergency, quick_match, sort_rows)
 from .native_symbols import AircraftSymbolGuide
 from .native_updates import UpdateManager, UpdateDialog
+from .fr24_api import Fr24Overlay
+from .fr24_display import merge_display_rows
+from .native_fr24 import Fr24Dialog
+from .native_fr24_catalog import Fr24CatalogDialog
 from .waypoints import WaypointStore
 from .native_waypoints import WaypointDialog
+from .app_icon import create_app_icon
 from .native_features import FeatureModel, FilterDialog, StatisticsPage, AlertsPage, FeaturePreferences, describe
 from .native_support import HelpDialog, PracticeDialog, AboutDialog
 from .support import support_summary
@@ -121,6 +126,9 @@ class FlightRadarWindow(QMainWindow):
         self.receiver, self.instance = receiver, instance
         self.config = receiver.settings.public()
         self.selected, self.rows, self.last_status = '', [], {}
+        self.fr24_overlay = Fr24Overlay(receiver.settings.directory)
+        self._browsing_api = False
+        self._merged_rows = None
         self.conflicts = {'alerts': {}, 'assessed': 0, 'unassessed': 0, 'pairs': 0}
         self._poll_pending = self._detail_pending = self._action_pending = False
         self._refresh_after_action = False
@@ -132,7 +140,7 @@ class FlightRadarWindow(QMainWindow):
         self._sort_key = None
         self._sort_reverse = False
         self.aircraft_window = None
-        self._ui_settings = QSettings('FlightRadar24 Community', 'FlightRadar24')
+        self._ui_settings = self._open_ui_settings(receiver.settings.directory)
         self._seen_alerts = set()
         self._notification_events = {}
         self.tray = None
@@ -285,7 +293,7 @@ class FlightRadarWindow(QMainWindow):
             self.preset_combo.activated.connect(self.choose_preset)
             controls.addWidget(self.preset_combo, 1)
             controls.addWidget(self._feature_button('Clear', lambda: self.feature_model.save({'filter_enabled': False})))
-            controls.addWidget(self._feature_button('Alert for selected aircraft…', lambda: self.alerts_page.add(self.selected) if self.selected else self.notice('Select an aircraft first.', False)))
+            controls.addWidget(self._feature_button('Alert for selected aircraft…', self._alert_for_selection))
             self.filter_status = QLabel('All received aircraft')
             self.filter_status.setTextFormat(Qt.TextFormat.PlainText)
             self.filter_status.setWordWrap(True)
@@ -297,7 +305,7 @@ class FlightRadarWindow(QMainWindow):
         self._update_table_headers()
         self.table.horizontalHeader().setSortIndicatorShown(True)
         self.table.horizontalHeader().sectionClicked.connect(self._sort_by_column)
-        self.table.setToolTip('Select a row for live broadcast details. Double-click centres the map. Click a column heading to sort; aircraft missing that value stay last.')
+        self.table.setToolTip('Select a row for aircraft details. FR24 marks API positions or supplementary information. Double-click centres the map.')
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -324,6 +332,7 @@ class FlightRadarWindow(QMainWindow):
         self.message.hide()
         self.tabs.addTab(dashboard, 'Airspace')
         self.pages = NativePages(self.dispatcher.invoke)
+        self.pages.apiSettingsRequested.connect(self.open_api_settings)
         self.pages.update_settings(self.config)
         self.pages.notice.connect(self.notice)
         self.pages.settingsChanged.connect(self._settings_changed)
@@ -354,15 +363,25 @@ class FlightRadarWindow(QMainWindow):
         self.details_panel.hide()
         self.details.closed.connect(self.clear_selection)
         menu = self.menuBar().addMenu('&File')
-        for title, callback in [('Export aircraft CSV…', self.export_aircraft), ('Logs and diagnostics', lambda: self.show_page('logs')), ('Exit', self.close)]:
+        for title, callback, shortcut in [
+            ('Export aircraft CSV…', self.export_aircraft, 'Ctrl+E'),
+            ('Logs and diagnostics', lambda: self.show_page('logs'), ''),
+            ('Exit', self.close, ''),
+        ]:
             action = QAction(title, self)
+            if shortcut:
+                action.setShortcut(shortcut)
             action.triggered.connect(callback)
             menu.addAction(action)
+            if title.startswith('Export'):
+                self._export_action = action
         menu = self.menuBar().addMenu('&View')
         for title, name in [('Receiver', 'receiver'), ('Data settings', 'settings'), ('Flightradar24 sharing', 'sharing')]:
             action = QAction(title, self)
             action.triggered.connect(lambda checked=False, page=name: self.show_page(page))
             menu.addAction(action)
+        menu.addAction('Flightradar24 API settings…', self.open_api_settings)
+        menu.addAction('Browse Flightradar24 API data…', self.open_api_catalog)
         if self.feature_model:
             action = QAction('Map labels & conflict display…', self)
             action.triggered.connect(lambda: self.show_page('features'))
@@ -389,12 +408,18 @@ class FlightRadarWindow(QMainWindow):
         self._fullscreen_action.triggered.connect(self._set_fullscreen)
         menu.addAction(self._fullscreen_action)
         escape = QShortcut(QKeySequence('Escape'), self)
-        escape.activated.connect(lambda: self._set_fullscreen(False))
-        follow_action = QAction('Follow selected aircraft on map', self)
-        follow_action.triggered.connect(lambda: self.show_page('features'))
-        follow_action.setToolTip('Display preference: Receiver & settings → Storage & alerts → Display & units')
-        menu.addAction(follow_action)
+        escape.activated.connect(self._handle_escape)
+        self._follow_action = QAction('Follow selected aircraft on map', self, checkable=True)
+        self._follow_action.setChecked(self._display()['follow_selected'])
+        self._follow_action.triggered.connect(self._toggle_follow_selected)
+        self._follow_action.setToolTip('Keep the map centred on the currently selected aircraft')
+        menu.addAction(self._follow_action)
         self.map.attribution.setObjectName('bottomAttribution')
+        self.api_badge = QPushButton()
+        self.api_badge.setAccessibleName('Flightradar24 API display status and settings')
+        self.api_badge.clicked.connect(self.open_api_settings)
+        self.statusBar().addPermanentWidget(self.api_badge)
+        self.api_badge.hide()
         self.statusBar().addPermanentWidget(self.map.attribution)
         self.map.refresh_overlays()
         self._layout_top_status()
@@ -420,6 +445,37 @@ class FlightRadarWindow(QMainWindow):
             support_menu.addAction(action)
         self._restore_ui_state()
         QApplication.instance().screenRemoved.connect(self._screen_removed)
+
+    @staticmethod
+    def _open_ui_settings(directory):
+        import os
+        ui_path = Path(directory) / 'ui-state.ini'
+        migrate_legacy = os.name == 'nt' and not ui_path.exists()
+        if migrate_legacy:
+            try:
+                from .platform_support import data_directory
+                migrate_legacy = Path(directory).resolve() == data_directory('FlightRadarWindows').resolve()
+            except OSError:
+                migrate_legacy = False
+        settings = QSettings(str(ui_path), QSettings.Format.IniFormat)
+        if migrate_legacy:
+            try:
+                legacy = QSettings('FlightRadar24 Community', 'FlightRadar24')
+                for key in ('window/geometry', 'window/state', 'airspace/listCollapsed',
+                            'airspace/listDetached', 'airspace/detachedGeometry', 'airspace/detachedScreen'):
+                    value = legacy.value(key)
+                    if value is not None:
+                        settings.setValue(key, value)
+                settings.sync()
+            except Exception:
+                pass
+        return settings
+
+    def _handle_escape(self):
+        if self.isFullScreen():
+            self._set_fullscreen(False)
+        elif self.selected:
+            self.clear_selection()
 
     def _set_fullscreen(self, fullscreen):
         if fullscreen:
@@ -649,6 +705,7 @@ class FlightRadarWindow(QMainWindow):
         self.preset_combo.blockSignals(False)
         self.map.set_display(self._display())
         self._waypoints_action.setChecked(self._display()['aviation_waypoints'])
+        self._follow_action.setChecked(self._display()['follow_selected'])
         self._update_table_headers()
         if self.selected and self.selected not in {r['icao'] for r in self.visible_rows()}:
             self.clear_selection()
@@ -656,6 +713,32 @@ class FlightRadarWindow(QMainWindow):
 
     def edit_filters(self):
         FilterDialog(self.feature_model,self).exec()
+
+    def _alert_for_selection(self):
+        if any(row['icao'] == self.selected for row in self.rows):
+            self.alerts_page.add(self.selected)
+        else:
+            self.notice('Select a receiver aircraft. API-only traffic does not trigger alerts.', False)
+
+    def _toggle_follow_selected(self, enabled):
+        if not self.feature_model:
+            self.features['display'] = {**self._display(), 'follow_selected': bool(enabled)}
+            self._follow_action.setChecked(bool(enabled))
+            if enabled and self.selected:
+                self.map.focus_aircraft(self.selected)
+            return
+        if (not self.feature_model.loaded or self.feature_model.pending or
+                self.feature_preferences.has_unsaved_changes()):
+            self._follow_action.setChecked(self._display()['follow_selected'])
+            self.statusBar().showMessage('Save pending display/settings changes before toggling follow mode.', 10000)
+            return
+        display = {**self._display(), 'follow_selected': bool(enabled)}
+        def saved():
+            self.feature_preferences.display_follow.setChecked(bool(enabled))
+            if enabled and self.selected:
+                self.map.focus_aircraft(self.selected)
+        self.feature_model.save({'display': display}, on_saved=saved)
+        self._follow_action.setChecked(self._display()['follow_selected'])
 
     def _toggle_waypoints(self, enabled):
         if (not self.feature_model or not self.feature_model.loaded or self.feature_model.pending or
@@ -677,12 +760,31 @@ class FlightRadarWindow(QMainWindow):
         dialog.catalogChanged.connect(self.map.set_waypoint_catalog)
         dialog.exec()
 
+    def open_api_settings(self):
+        if not self._closing:
+            dialog = Fr24Dialog(self.fr24_overlay, self)
+            dialog.exec()
+            dialog.deleteLater()
+            self.poll()
+
+    def open_api_catalog(self):
+        if not self._closing and not self._browsing_api:
+            dialog = Fr24CatalogDialog(self.fr24_overlay, self)
+            self._browsing_api = True
+            try:
+                dialog.exec()
+            finally:
+                dialog.deleteLater()
+                self._browsing_api = False
+
     def choose_preset(self,index):
         criteria=self.preset_combo.itemData(index)
         self.feature_model.save({'filter_enabled':criteria is not None,**({'filter':criteria} if criteria is not None else {})})
 
     def visible_rows(self):
-        rows = self.rows
+        return self._filter_rows(self.rows if self._merged_rows is None else self._merged_rows)
+
+    def _filter_rows(self, rows):
         if self.features.get('filter_enabled'):
             station=(self.config.get('latitude'),self.config.get('longitude'))
             rows = [r for r in rows if matches(r,self.features['filter'],station)]
@@ -691,11 +793,12 @@ class FlightRadarWindow(QMainWindow):
         return sort_rows(rows, self._sort_key, self._sort_reverse, self._station())
 
     def _build_notifications(self):
-        pixmap=QPixmap(64,64);pixmap.fill(QColor('#18374e'))
-        painter=QPainter(pixmap);painter.setPen(QColor('#79dbc8'));painter.setFont(QFont('Segoe UI Symbol',36));painter.drawText(pixmap.rect(),Qt.AlignmentFlag.AlignCenter,'✈');painter.end()
-        self.setWindowIcon(QIcon(pixmap))
+        icon = self.windowIcon()
+        if icon.isNull():
+            icon = create_app_icon()
+            self.setWindowIcon(icon)
         if QSystemTrayIcon.isSystemTrayAvailable():
-            self.tray=QSystemTrayIcon(QIcon(pixmap),self)
+            self.tray=QSystemTrayIcon(icon,self)
             self.tray.setToolTip('FlightRadar24 · aircraft alerts')
             self.tray.messageClicked.connect(self._open_alerts)
             self.tray.activated.connect(lambda reason:self._open_alerts() if reason==QSystemTrayIcon.ActivationReason.Trigger else None)
@@ -794,10 +897,10 @@ class FlightRadarWindow(QMainWindow):
     def poll(self):
         if self._closing:
             return
+        if self.config.get('receiver') != 'iq-file' and not self._browsing_api:
+            self.fr24_overlay.tick()
         if self._poll_pending:
-            # Expire warnings even while a status request is stalled.
-            self._update_positions()
-            self._update_table()
+            self._refresh_airspace()
             return
         self._poll_pending = True
         def done(status, error=None):
@@ -811,9 +914,9 @@ class FlightRadarWindow(QMainWindow):
             if error:
                 self._status_notice('Receiver status unavailable: ' + str(error))
                 self.health.setText('Receiver status unavailable')
-                self.details.set_error(str(error))
-                self._update_positions()
-                self._update_table()
+                self._refresh_airspace()
+                if self.details.snapshot.get('source') != 'fr24-api':
+                    self.details.set_error(str(error))
                 return
             self._clear_status_notice()
             self.last_status = status
@@ -829,8 +932,8 @@ class FlightRadarWindow(QMainWindow):
             ranges = [distance_bearing(station, r)[0] for r in self.rows if distance_bearing(station, r)] if station else []
             emergencies = sum(1 for r in self.rows if is_emergency(r))
             extra = (f"  ·  Max range {format_distance(max(ranges), self._display()['units'])}" if ranges else '') + (f"  ·  ⚠ {emergencies} emergency squawk" if emergencies else '')
-            self.metrics.setToolTip(f"{len(self.rows)} aircraft  ·  {positioned} with positions  ·  {status.get('messages_per_second', 0)} messages/s  ·  {status.get('messages', 0):,} messages" + extra)
-            self.metrics.setText(f"{len(self.rows)} aircraft  ·  {positioned} with positions  ·  {status.get('messages_per_second', 0)} messages/s  ·  {status.get('messages', 0):,} messages" + extra)
+            self.metrics.setText(f"{len(self.rows)} aircraft received  ·  {positioned} with positions  ·  {status.get('messages_per_second', 0)} messages/s  ·  {status.get('messages', 0):,} messages" + extra)
+            self.metrics.setToolTip(self.metrics.text() + ' · Receiver only; excludes Flightradar24 API data.')
             feeder = status.get('feeder') or {}
             monitor = feeder.get('monitor') or {}
             mlat = (monitor.get('mlat_status') or monitor.get('mlat-status') or
@@ -853,10 +956,23 @@ class FlightRadarWindow(QMainWindow):
                 self._status_notice(status.get('error') or feeder.get('error'))
             self.pages.update_status(status)
             self._process_alerts(status)
-            self._update_positions()
-            self._update_table()
-            self._poll_detail()
+            self._refresh_airspace()
         self.dispatcher.invoke('/api/status', None, done)
+
+    def _refresh_airspace(self):
+        snapshot = self.fr24_overlay.snapshot()
+        playback = self.config.get('receiver') == 'iq-file'
+        self._merged_rows = merge_display_rows(self.rows, snapshot) if snapshot['records'] and not playback else None
+        status = 'API paused for recorded playback' if playback else snapshot['status']
+        self.api_badge.setText('Flightradar24 · ' + status)
+        self.api_badge.setToolTip('Display only · ' + status + '\nClick to change API settings.')
+        self.api_badge.setVisible(snapshot['enabled'])
+        self._update_positions()
+        self._update_table()
+        self._poll_detail()
+
+    def _selected_display_row(self):
+        return next((row for row in (self._merged_rows or ()) if row['icao'] == self.selected), {})
 
     def _update_positions(self):
         self.conflicts = evaluate_conflicts(self.rows, enabled=self._display()['conflict_enabled'])
@@ -897,9 +1013,15 @@ class FlightRadarWindow(QMainWindow):
                 position = 'Not received'
             if conflict:
                 position = 'Estimated conflict · ' + conflict['level']
+            if row.get('source') == 'fr24-api':
+                position = 'FR24 API'
+            elif row.get('fr24_position'):
+                position = 'Receiver · FR24 position'
+            elif 'fr24_data' in row:
+                position += ' + FR24 info'
             values = [
                 str(row.get('callsign') or '').strip() or '—',
-                str(row.get('icao') or ''),
+                '—' if str(row.get('icao', '')).startswith('FR24:') else str(row.get('icao') or ''),
                 format_altitude(row.get('altitude'), units),
                 format_speed(row.get('groundspeed'), units),
                 format_track(row.get('track')),
@@ -959,9 +1081,20 @@ class FlightRadarWindow(QMainWindow):
         self._poll_detail()
 
     def _poll_detail(self):
-        if not self.selected or self._detail_pending or self._closing:
+        if not self.selected or self._closing:
             return
         selected = self.selected
+        row = self._selected_display_row()
+        if row.get('source') == 'fr24-api':
+            self.details.set_detail(row, 'fr24-api')
+            return
+        if not row.get('fr24_data') and 'fr24_data' in self.details.snapshot:
+            if not any(local['icao'] == selected for local in self.rows):
+                self.clear_selection()
+                return
+            self.details.clear()
+        if self._detail_pending:
+            return
         self._detail_pending = True
         def done(detail, error=None):
             self._detail_pending = False
@@ -970,12 +1103,18 @@ class FlightRadarWindow(QMainWindow):
             if selected != self.selected:
                 self._poll_detail()
                 return
+            row = self._selected_display_row()
+            if row.get('source') == 'fr24-api':
+                self.details.set_detail(row, 'fr24-api')
+                return
             if error:
                 if getattr(error, 'status', None) == 404:
                     self.details.mark_lost()
                 else:
                     self.details.set_error(str(error))
             else:
+                if 'fr24_data' in row:
+                    detail = {**detail, 'fr24_data': row['fr24_data'], 'fr24_received_at': row.get('fr24_received_at')}
                 self.details.set_detail(detail, self.config.get('receiver', 'usb'))
         self.dispatcher.invoke('/api/aircraft/' + selected, None, done)
 
@@ -996,10 +1135,10 @@ class FlightRadarWindow(QMainWindow):
             with Path(path).open('w', encoding='utf-8-sig', newline='') as handle:
                 writer = csv.DictWriter(handle, fields, extrasaction='ignore')
                 writer.writeheader()
-                for row in self.visible_rows():
+                for row in self._filter_rows(self.rows):
                     writer.writerow({key: "'" + value if isinstance(value, str) and value.startswith(('=', '+', '-', '@')) else value
                                      for key, value in row.items() if key in fields})
-            self.notice('Aircraft exported.')
+            self.notice('Receiver aircraft exported. Flightradar24 API data is not exported.')
         except OSError as error:
             self.notice(str(error), True)
 
@@ -1076,6 +1215,7 @@ class FlightRadarWindow(QMainWindow):
                 self.activation_timer.start()
                 return
             self.pages.stop_polling()
+            self.fr24_overlay.close()
             if self.updater:
                 self.updater.finish()
             self.dispatcher.finish()
@@ -1089,6 +1229,7 @@ class FlightRadarWindow(QMainWindow):
 
 def apply_desktop_style(app):
     app.setApplicationName('FlightRadar24')
+    app.setWindowIcon(create_app_icon())
     app.setApplicationVersion(__version__)
     app.setOrganizationName('FlightRadar24 Community')
     app.setStyle('Fusion')

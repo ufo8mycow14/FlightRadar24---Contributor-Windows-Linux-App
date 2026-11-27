@@ -31,13 +31,14 @@ function Get-Sha256([string]$Path) {
 
 function Write-Result([string]$Message) {
     if ($SummaryPath) {
-        [IO.File]::WriteAllText($SummaryPath, $Message, (New-Object Text.UTF8Encoding($false)))
+        $ResolvedSummary = $ExecutionContext.SessionState.Path.GetUnresolvedProviderPathFromPSPath($SummaryPath)
+        [IO.File]::WriteAllText($ResolvedSummary, $Message, (New-Object Text.UTF8Encoding($false)))
     }
     Write-Output $Message
 }
 
 try {
-    $InstallRoot = (Resolve-Path -LiteralPath $InstallDirectory).Path
+    $InstallRoot = (Resolve-Path -LiteralPath $InstallDirectory).ProviderPath
     if (-not (Test-Path -LiteralPath (Join-Path $InstallRoot 'FlightRadar24.exe') -PathType Leaf)) {
         throw 'Choose the installed FlightRadar24 application folder.'
     }
@@ -59,7 +60,8 @@ try {
     New-Item -ItemType Directory -Path $FeederTemporary | Out-Null
     $Archive = Join-Path $FeederTemporary 'official-feeder.tgz'
     if ($ArchivePath) {
-        Copy-Item -LiteralPath $ArchivePath -Destination $Archive
+        $ArchiveSource = (Resolve-Path -LiteralPath $ArchivePath).ProviderPath
+        Copy-Item -LiteralPath $ArchiveSource -Destination $Archive
     } else {
         # Windows certificate verification stays enabled. This only selects TLS
         # for this PowerShell process; it does not change system TLS settings.

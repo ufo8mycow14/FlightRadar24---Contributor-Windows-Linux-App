@@ -21,13 +21,18 @@ if os.name == 'nt':
 dist=args.dist_dir.resolve(); work=args.work_dir.resolve()
 work.mkdir(parents=True,exist_ok=True)
 sys.path[:0]=[str(ROOT/'work/pythonlibs'),str(ROOT/'work/desktoplibs'),str(ROOT/'work/applibs')]
+sys.path.insert(0,str(ROOT/'src'))
+from frw.app_icon import write_windows_icon
 from PyInstaller.__main__ import run
+icon_path=work/'FlightRadar24.ico'
+write_windows_icon(icon_path)
 extra_data=[]
 # Some bundled Python distributions load this stdlib trust resource in SSLContext.
 # Keep their certificate policy intact in the frozen application.
 trust_resource=Path(ssl.__file__).with_name('codex-rejected-cas.pem')
 if trust_resource.is_file(): extra_data=['--add-data',str(trust_resource)+';.']
 run([str(ROOT/'src/launcher.py'),'--name','FlightRadar24','--onedir','--windowed','--noconfirm','--clean',
+     '--icon',str(icon_path),
      '--distpath',str(dist),'--workpath',str(work),
      '--specpath',str(work),'--paths',str(ROOT/'src'),'--paths',str(ROOT/'work/applibs'),
      '--paths',str(ROOT/'work/desktoplibs'),

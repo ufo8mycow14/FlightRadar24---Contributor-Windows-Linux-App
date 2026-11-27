@@ -273,7 +273,9 @@ def aircraft_hover_html(row, display, station=None, conflict=None):
     """Escaped bounded HTML tooltip for received aircraft and estimate context."""
     if not row or not (display or {}).get('aircraft_hover', True): return ''
     display = {**DISPLAY_DEFAULT, **(display or {})}
-    labels = [('Map symbol', symbol_label(row)), ('Callsign', str(row.get('callsign') or '').strip()[:32]), ('ICAO', str(row.get('icao') or '').strip()[:16]),
+    identity = str(row.get('icao') or '')
+    identity_label = 'FR24 flight ID' if identity.startswith('FR24:') else 'ICAO'
+    labels = [('Map symbol', symbol_label(row)), ('Callsign', str(row.get('callsign') or '').strip()[:32]), (identity_label, identity.removeprefix('FR24:')[:32]),
               ('Altitude', format_altitude(row.get('altitude'), display['units']) if row.get('altitude') is not None else ''),
               ('Ground speed', format_speed(row.get('groundspeed'), display['units']) if row.get('groundspeed') is not None else ''),
               ('Track', format_track(row.get('track')) if row.get('track') is not None else ''),
@@ -281,6 +283,8 @@ def aircraft_hover_html(row, display, station=None, conflict=None):
               ('Squawk', str(row.get('squawk') or '').strip()[:8]), ('Received via', str(row.get('data_source') or '').strip()[:40]),
               ('Last message age', format_seen(row.get('seen')) if row.get('seen') is not None else '')]
     ages=row.get('field_ages') if isinstance(row.get('field_ages'),dict) else {}
+    if row.get('fr24_position'):
+        labels.append(('Position source', 'Flightradar24 API (no receiver position)'))
     times=row.get('field_times') if isinstance(row.get('field_times'),dict) else {}
     pos_ages=[ages[k] for k in ('latitude','longitude') if _number(ages.get(k))]
     if len(pos_ages)==2: labels.append(('Position age',format_seen(max(pos_ages))))

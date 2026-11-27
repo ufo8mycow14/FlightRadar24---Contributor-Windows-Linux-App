@@ -109,6 +109,47 @@ class ControllerTests(unittest.TestCase):
             for secret in (key, '-34.912345', '138.612345', 'Do not export log content'):
                 self.assertNotIn(secret.encode(), contents)
 
+    def test_pi24_profile_roundtrip_does_not_activate_vendor_direct_usb(self):
+        document = ('receiver="dvbt"\npath="/usr/lib/fr24/dump1090"\nlogmode="2"\n'
+                    'mlat="no"\nmlat-without-gps="no"\nwindowmode="1"\n'
+                    'procargs="--gain 19.7 --net"\nraw="yes"\nfr24key="0123456789abcdef"\n')
+        self.settings.value.update(receiver='beast-tcp', bind_interface='0.0.0.0', gain=20.7)
+        preview = self.controller.execute('/api/import', 'POST', {'text': document})
+        self.assertEqual(preview.status, 200)
+        self.assertEqual(preview.data['settings']['feed_mode'], 'relay')
+        self.assertFalse(self.settings.path.exists())
+        self.assertNotIn('0123456789abcdef', repr(preview.data))
+        applied = self.controller.execute('/api/import/apply', 'POST', {'text': document})
+        self.assertEqual(applied.status, 200)
+        self.assertEqual(self.settings.value['gain'], 20.7)
+        self.assertEqual(self.settings.value['receiver'], 'beast-tcp')
+        self.assertFalse(self.settings.value['raw'])
+        self.assertTrue(self.settings.value['pi24']['raw'])
+        reloaded = Settings(self.settings.directory)
+        self.assertEqual(reloaded.value['pi24']['windowmode'], 1)
+        with patch.object(self.settings, 'key', side_effect=AssertionError('export must not read a key')):
+            exported = self.controller.execute('/api/export/pi24')
+        self.assertEqual(exported.status, 200)
+        self.assertIn('windowmode="1"', exported.data)
+        self.assertIn('mlat="no"', exported.data)
+        self.assertIn('procargs="--gain 19.7 --net"', exported.data)
+        self.assertNotIn('fr24key', exported.data)
+        self.assertNotIn('0123456789abcdef', exported.data)
+
+    def test_unavailable_direct_input_does_not_touch_live_state(self):
+        config = {**self.settings.value, 'feed_mode': 'direct-usb'}
+        result = self.controller.execute('/api/settings', 'POST', {'settings': config})
+        self.assertEqual(result.status, 400)
+        self.assertFalse(self.settings.path.exists())
+        self.assertEqual(self.settings.value['feed_mode'], 'relay')
+        self.settings.value = config
+        with patch.object(self.settings, 'key', side_effect=AssertionError('unexpected credential read')):
+            result = self.controller.execute('/api/start', 'POST', {})
+        self.assertEqual(result.status, 400)
+        self.assertIn('DVB-T', result.data['error'])
+        self.assertIsNone(self.receiver.thread)
+        self.assertFalse((self.receiver.feeder.root/'etc/fr24feed.ini').exists())
+
     def test_shutdown_is_scheduled_after_signup_and_receiver_cleanup(self):
         order = []
         cleanup_started = threading.Event()
